@@ -996,6 +996,19 @@ public:
         addRow (ffmpegLabel, ko ("ffmpeg (영상 레퍼런스)"), ffmpegPath, lib.getSetting ("ffmpegPath", "ffmpeg"));
         addRow (budgetLabel, ko ("memopro 메모리 상한 (MiB)"), budget, lib.getSetting ("memoryBudgetMiB", "512"));
         addRow (moduleBudgetLabel, ko ("모듈 메모리 상한 (MiB)"), moduleBudget, lib.getSetting ("moduleBudgetMiB", "4096"));
+        dimLabel (genreLabel, ko ("장르 프로필 (models/*.smxgenre)"));
+        addAndMakeVisible (genreLabel);
+        addAndMakeVisible (genreBox);
+        fillGenres();
+        genreBox.onChange = [this] {
+            const int id = genreBox.getSelectedId();
+            const juce::String setting = id == 1 ? juce::String() : id == 2 ? juce::String ("none") : genreBox.getText();
+            processor.getEngine().selectGenre (setting);
+            const auto now = processor.getEngine().currentGenre();
+            processor.addLog ("system", now.isEmpty() ? ko ("장르 프로필을 끄고 기본 규칙으로 믹싱해요.")
+                                                      : ko ("장르 프로필 '") + now + ko ("'의 밸런스·톤·마스터 기준으로 믹싱해요."));
+        };
+
         aggressive.setButtonText (ko ("무음 채널의 플러그인도 절전 (소리가 다시 나면 자동 복귀, 처음 0.5초는 원음)"));
         aggressive.setToggleState (lib.getSetting ("hibernateSilent", "0") == "1", juce::dontSendNotification);
         addAndMakeVisible (aggressive);
@@ -1057,6 +1070,8 @@ public:
         modules.updateContent();
         modules.repaint();
         juce::String text = processor.getEngine().statusText();
+        const auto genre = processor.getEngine().currentGenre();
+        text << ko ("\n장르 프로필: ") << (genre.isEmpty() ? ko ("없음 (기본 규칙)") : genre);
         text << ko ("\n분석 도우미: ")
              << (Engine::ProfilerJob::helperExecutable().existsAsFile() ? Engine::ProfilerJob::helperExecutable().getFullPathName()
                                                                          : ko ("찾을 수 없음"));
@@ -1075,6 +1090,11 @@ public:
             label->setBounds (x.removeFromLeft (190));
             editor->setBounds (x);
         }
+        {
+            auto x = row();
+            genreLabel.setBounds (x.removeFromLeft (190));
+            genreBox.setBounds (x.removeFromLeft (300));
+        }
         aggressive.setBounds (row());
         save.setBounds (row().removeFromLeft (100));
         r.removeFromTop (6);
@@ -1083,6 +1103,19 @@ public:
     }
 
 private:
+    void fillGenres()
+    {
+        genreBox.clear (juce::dontSendNotification);
+        genreBox.addItem (ko ("자동 (첫 번째 프로필)"), 1);
+        genreBox.addItem (ko ("끄기 (기본 규칙)"), 2);
+        const auto names = processor.getEngine().genreNames();
+        for (int i = 0; i < names.size(); ++i)
+            genreBox.addItem (names[i], 3 + i);
+        const auto setting = processor.getLibrary().getSetting ("genre");
+        const int idx = names.indexOf (setting);
+        genreBox.setSelectedId (setting == "none" ? 2 : idx >= 0 ? 3 + idx : 1, juce::dontSendNotification);
+    }
+
     juce::String statusFor (smix::modules::ModuleId id) const
     {
         for (auto& m : moduleStatus.value ("modules", nlohmann::json::array()))
@@ -1098,7 +1131,8 @@ private:
     }
 
     SoundManagerProcessor& processor;
-    juce::Label llmLabel, earLabel, ffmpegLabel, budgetLabel, moduleBudgetLabel;
+    juce::Label llmLabel, earLabel, ffmpegLabel, budgetLabel, moduleBudgetLabel, genreLabel;
+    juce::ComboBox genreBox;
     juce::TextEditor llmPath, earPath, ffmpegPath, budget, moduleBudget, status;
     juce::ToggleButton aggressive;
     juce::TextButton save;

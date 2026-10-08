@@ -1,5 +1,6 @@
 // Extracts ear-model features from labelled WAV stems for training (training/ear/train_ear.py).
 //   smix_ear_features <out.csv> --dir <root>              (each sub-folder of root is one class; any depth below it)
+//   smix_ear_features <out.csv> --list ear-tracks.csv           (label,path lines from smix_learn_mix)
 //   smix_ear_features <out.csv> <label>=<wav> [...]
 // Every file is cut into 3 s windows (hop 1.5 s). Windows that are (mostly) silent - long rests in
 // multitrack stems - are skipped, so the model only learns from the instrument actually playing.
@@ -53,8 +54,8 @@ Counts addFile (std::ofstream& out, std::ofstream& files, int index, const std::
             sq += static_cast<double> (mono[start + i]) * mono[start + i];
         const double rmsDb = 10.0 * std::log10 (sq / static_cast<double> (n) + 1.0e-20);
         const auto f = smix::ear::EarFeatures::extract (mono.data() + start, n, wav.sampleRate);
-        // Too quiet overall, or less than 40 % of the window actually sounding.
-        if (rmsDb < silenceDb || f.back() < 0.4f)
+        // Too quiet overall, or hardly any of the window actually sounding.
+        if (rmsDb < silenceDb || f.back() < smix::ear::EarFeatures::kMinActive)
         {
             ++c.silent;
             continue;
@@ -97,7 +98,19 @@ int main (int argc, char** argv)
         perLabel[label].silent += c.silent;
     };
 
-    if (std::string (argv[2]) == "--dir" && argc > 3)
+    if (std::string (argv[2]) == "--list" && argc > 3)
+    {
+        // label,path per line (written by smix_learn_mix as ear-tracks.csv)
+        std::ifstream list (argv[3]);
+        std::string line;
+        while (std::getline (list, line))
+        {
+            const auto comma = line.find (',');
+            if (comma != std::string::npos)
+                add (line.substr (0, comma), line.substr (comma + 1));
+        }
+    }
+    else if (std::string (argv[2]) == "--dir" && argc > 3)
     {
         for (auto& labelDir : fs::directory_iterator (fs::u8path (argv[3])))
             if (labelDir.is_directory())

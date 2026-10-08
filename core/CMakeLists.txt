@@ -20,6 +20,7 @@ add_library(smix_core STATIC
     src/mem/MemoryRuntime.cpp
     src/modules/ModuleManager.cpp
     src/style/StyleProfile.cpp
+    src/style/GenreProfile.cpp
     src/knowledge/PluginProfile.cpp
     src/knowledge/KnowledgeBase.cpp
     src/dialogue/Dialogue.cpp
@@ -52,6 +53,8 @@ add_executable(smix_ear_features tools/smix_ear_features.cpp)
 target_link_libraries(smix_ear_features PRIVATE smix_core)
 add_executable(smix_ear_classify tools/smix_ear_classify.cpp)
 target_link_libraries(smix_ear_classify PRIVATE smix_core)
+add_executable(smix_learn_mix tools/smix_learn_mix.cpp)
+target_link_libraries(smix_learn_mix PRIVATE smix_core)
 add_executable(smix_export_prompts tools/smix_export_prompts.cpp)
 target_link_libraries(smix_export_prompts PRIVATE smix_core)
 add_executable(smix_intent_eval tools/smix_intent_eval.cpp)
@@ -70,7 +73,8 @@ if(SMIX_BUILD_TESTS)
         tests/KnowledgeTests.cpp
         tests/AssistantTests.cpp
         tests/EarTests.cpp
-        tests/LlmTests.cpp)
+        tests/LlmTests.cpp
+        tests/GenreTests.cpp)
     target_link_libraries(smix_core_tests PRIVATE smix_core smix_llm doctest::doctest)
     target_compile_definitions(smix_core_tests PRIVATE SMIX_TEST_TINY_LLM="${CMAKE_BINARY_DIR}/tiny-llm.gguf"
                                                        SMIX_SOURCE_DIR="${PROJECT_SOURCE_DIR}")

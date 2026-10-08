@@ -1,5 +1,7 @@
 #include "AssistantWorker.h"
 
+#include <smix/style/GenreProfile.h>
+
 #include "PluginProcessor.h"
 #include "Text.h"
 
@@ -126,6 +128,9 @@ public:
                                 name = p->getReferenceName();
                         if (const auto* r = owner.getEngine().findReference (name.toStdString()))
                             return *r;
+                        // No reference chosen: the learned genre's average finished mix.
+                        if (const auto g = style::activeGenre(); g && g->songs > 0)
+                            return g->master;
                         return std::nullopt;
                     }).value_or (std::nullopt);
         return reference ? &*reference : nullptr;

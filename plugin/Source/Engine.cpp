@@ -5,6 +5,8 @@
 
 #include "Text.h"
 
+#include <smix/style/GenreProfile.h>
+
 using namespace smix;
 
 namespace
@@ -36,6 +38,7 @@ Engine::Engine()
     registerModules();
     earLease = moduleManager.acquire (modules::ModuleId::Ear, now());  // the ear always runs
     loadReferences();
+    loadGenre();
     startTimer (1000);
 }
 
@@ -130,6 +133,57 @@ juce::File Engine::llmModelFile() const
     auto files = PluginLibrary::modelsDirectory().findChildFiles (juce::File::findFiles, false, "*.gguf");
     files.sort();
     return files.isEmpty() ? juce::File() : files.getFirst();
+}
+
+juce::StringArray Engine::genreNames() const
+{
+    juce::StringArray names;
+    for (auto& f : PluginLibrary::modelsDirectory().findChildFiles (juce::File::findFiles, false, "*.smxgenre"))
+        names.add (f.getFileNameWithoutExtension());
+    names.sort (true);
+    return names;
+}
+
+juce::String Engine::currentGenre() const
+{
+    const auto g = style::activeGenre();
+    return g ? juce::String::fromUTF8 (g->name.c_str()) : juce::String();
+}
+
+void Engine::selectGenre (const juce::String& setting)
+{
+    lib->setSetting ("genre", setting);
+    loadGenre();
+}
+
+void Engine::loadGenre()
+{
+    auto choice = lib->getSetting ("genre");
+    if (choice == "none")
+    {
+        style::setActiveGenre (nullptr);
+        return;
+    }
+    const auto names = genreNames();
+    if (choice.isEmpty() || ! names.contains (choice))
+        choice = names.isEmpty() ? juce::String() : names[0];
+    if (choice.isEmpty())
+    {
+        style::setActiveGenre (nullptr);
+        return;
+    }
+    try
+    {
+        const auto text = PluginLibrary::modelsDirectory().getChildFile (choice + ".smxgenre").loadFileAsString();
+        auto g = std::make_shared<style::GenreProfile> (style::GenreProfile::fromJson (nlohmann::json::parse (text.toStdString())));
+        if (g->name.empty())
+            g->name = choice.toStdString();
+        style::setActiveGenre (std::move (g));
+    }
+    catch (const std::exception&)
+    {
+        style::setActiveGenre (nullptr);
+    }
 }
 
 juce::File Engine::earModelFile() const

@@ -8,7 +8,9 @@
 #include "../Source/AssistantWorker.h"
 #include "../Source/PluginProcessor.h"
 
+#include <smix/GainBalancer.h>
 #include <smix/WavFile.h>
+#include <smix/style/GenreProfile.h>
 
 #include <cmath>
 #include <iostream>
@@ -385,6 +387,23 @@ private:
                     std::cout << "    memory runtime: " << (stats.memopro ? "memopro" : "fallback") << ", " << smix::mem::formatBytes (stats.used)
                               << " used of " << smix::mem::formatBytes (stats.budget) << ", written to disk " << stats.writtenBytes << " B" << std::endl;
                     check (stats.writtenBytes == 0 && stats.used <= stats.budget, "memory stays within the memopro budget, nothing on disk");
+
+                    // Genre profile learned by smix_learn_mix: dropped into models/ and picked up.
+                    auto& e = masterProc->getEngine();
+                    smix::style::GenreProfile g;
+                    g.name = "SmxTestGenre";
+                    g.songs = 8;
+                    g.balanceLu[smix::InstrumentRole::Kick] = -3.5f;
+                    auto genreFile = PluginLibrary::modelsDirectory().getChildFile ("SmxTestGenre.smxgenre");
+                    genreFile.replaceWithText (juce::String (g.toJson().dump()));
+                    e.selectGenre ("SmxTestGenre");
+                    check (e.currentGenre() == "SmxTestGenre" && e.genreNames().contains ("SmxTestGenre"), "genre profile loaded from models/");
+                    check (std::abs (smix::GainBalancer::targetOffsetLu (smix::InstrumentRole::Kick) + 3.5f) < 0.01f,
+                           "genre balance used by the level balancer");
+                    e.selectGenre ("none");
+                    check (e.currentGenre().isEmpty(), "genre profile switched off");
+                    genreFile.deleteFile();
+                    e.selectGenre ({});
                     stage = 99;
                 }
                 break;

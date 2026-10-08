@@ -4,6 +4,8 @@
 #include <cmath>
 #include <sstream>
 
+#include "smix/style/GenreProfile.h"
+
 namespace smix
 {
 namespace
@@ -64,6 +66,11 @@ std::string koreanLabel (Descriptor d, bool positive)
 
 Curve referenceCurve (InstrumentRole role)
 {
+    // A genre profile learned from the user's own mixes replaces the rule-of-thumb curves.
+    if (const auto genre = style::activeGenre())
+        if (auto it = genre->curves.find (role); it != genre->curves.end())
+            return it->second;
+
     switch (role)
     {
         //                                     sub   bass lowmid mud   mid  upmid pres  bite  sib   air

@@ -209,7 +209,7 @@ bool EarModel::load (const std::string& path, std::string& error)
 std::vector<EarModel::Guess> EarModel::classify (const std::vector<float>& features, std::size_t topK) const
 {
     // Mostly silence: there is nothing to recognise (guessing would only mislead the naming question).
-    if (static_cast<int> (features.size()) == EarFeatures::kDim && features.back() < 0.4f)
+    if (static_cast<int> (features.size()) == EarFeatures::kDim && features.back() < EarFeatures::kMinActive)
         return {};
     if (! loaded || static_cast<int> (features.size()) != dims.front())
         return heuristicGuess (features);

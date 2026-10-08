@@ -44,6 +44,12 @@ public:
     juce::File knowledgeFile() const { return PluginLibrary::dataDirectory().getChildFile ("knowledge.jsonl"); }
     void saveKnowledge();
 
+    // --- genre profile (learned with smix_learn_mix; models/*.smxgenre) ----------------
+    juce::StringArray genreNames() const;   // file stems in the models folder
+    juce::String currentGenre() const;      // "" = built-in rules
+    /** "" = first genre file found (default), "none" = built-in rules, otherwise a file stem. */
+    void selectGenre (const juce::String& setting);
+
     /** Estimated seconds to load the language model (for the ETA display). */
     double llmLoadSecondsEstimate() const;
 
@@ -69,6 +75,7 @@ private:
     void registerModules();
     void loadReferences();
     void saveReferences();
+    void loadGenre();
 
     juce::SharedResourcePointer<PluginLibrary> lib;
     std::unique_ptr<smix::mem::Runtime> runtime;

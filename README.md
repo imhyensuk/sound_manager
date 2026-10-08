@@ -14,7 +14,7 @@ DAW의 트랙·버스·마스터 채널에 넣어 쓰는 **완전 로컬 AI 믹�
 | # | 요구사항 | 구현 |
 |---|---|---|
 | 1 | 완전 로컬 | 네트워크 코드가 없습니다(JUCE `USE_CURL=0`, 웹뷰 없음, curl·SSL 미링크). 언어 모델은 llama.cpp(GGUF), 악기 인식은 자체 MLP, 플러그인 지식은 로컬 BM25 검색입니다. 영상 레퍼런스는 PC에 설치된 ffmpeg로만 읽습니다. |
-| 2 | 레퍼런스 스타일 믹싱 | **레퍼런스** 탭에 음원(wav/aiff/flac/mp3/ogg, macOS·Windows는 m4a/mp4/mov도)이나 영상을 올립니다. 파일 전체를 메모리에 올리지 않고 조각 단위로 분석합니다(1/3옥타브 톤, LUFS·LRA, PLR, 크레스트, 대역별 스테레오 폭, 트랜지언트). 결과는 마스터/버스 매칭(EQ, 압축, 리미터, 폭)과 악기별 기본 스타일로 쓰입니다. |
+| 2 | 레퍼런스 스타일 믹싱 | **레퍼런스** 탭에 음원(wav/aiff/flac/mp3/ogg, macOS·Windows는 m4a/mp4/mov도)이나 영상을 올립니다. 파일 전체를 메모리에 올리지 않고 조각 단위로 분석합니다(1/3옥타브 톤, LUFS·LRA, PLR, 크레스트, 대역별 스테레오 폭, 트랜지언트). 결과는 마스터/버스 매칭(EQ, 압축, 리미터, 폭)과 악기별 기본 스타일로 쓰입니다. 내 곡의 멀티트랙과 완성 믹스로 학습한 **장르 프로필**(예: CCM)이 있으면 악기별 밸런스, 톤 기준, 기본 레퍼런스가 그 장르를 따릅니다. |
 | 3 | memopro로 메모리 최적화 | memopro C ABI(Rust)를 정적 링크했습니다. 지식 베이스, 믹스 기록(플러그인 상태 전체), 절전 중인 플러그인 상태, 악기 인식 모델 가중치(파일 버퍼), 언어 모델의 프롬프트 KV 캐시가 **하나의 하드 상한** 안에 들어가고, 부족하면 무손실 압축하거나 파일에서 다시 읽습니다. 디스크 스왑은 없습니다. 무거운 모듈은 프로세스당 하나만 있으며, 채널 수가 많아도 인스턴스 하나는 수백 KB 수준입니다. |
 | 4 | 로컬 플러그인 전부 학습 + RAG | **플러그인** 탭 → *모든 플러그인 분석·학습*. 별도 프로세스(`SoundManagerProfiler`)가 각 플러그인에 핑크 노이즈·드럼 히트·임펄스·사인 신호를 보내 파라미터별 실제 효과를 측정합니다(대역별 dB 변화, 레벨, 압축, 폭, 잔향, 왜곡). 이름이 "Param 12"여도 무엇을 하는지 알 수 있고, 진짜 종류도 판별합니다. 결과는 지식 베이스(한국어 음절 바이그램 + 영어 BM25)에 저장되어 LLM 문맥(RAG)으로 쓰입니다. 플러그인이 크래시해도 DAW는 안전하며, 진행률과 남은 시간을 표시합니다. |
 | 5 | 채팅 믹싱 | 대화형 어시스턴트(`MixAssistant`)가 별도 스레드에서 동작합니다. |
@@ -58,7 +58,8 @@ DAW의 트랙·버스·마스터 채널에 넣어 쓰는 **완전 로컬 AI 믹�
    - "waterfall 보여줘"
    - "레퍼런스에 맞춰줘"
    - "되돌려줘"
-5. (권장) 로컬 언어 모델 `smix-intent.gguf`를 `SoundManagerAI/models/`에 넣습니다. 만드는 방법은 [training/README.md](training/README.md)에 있습니다. 모델이 없어도 규칙 기반으로 동작합니다.
+5. (권장) 믹싱 전 멀티트랙과 완성 믹스가 있는 곡으로 **장르 프로필**을 만들어 `models/`에 넣습니다(`smix_learn_mix`). 자동 믹스의 볼륨 밸런스, 톤 판단 기준, 기본 레퍼런스가 내 곡들의 믹스 성향을 따릅니다. 방법은 [training/README.md](training/README.md) 2장에 있습니다.
+6. (권장) 로컬 언어 모델 `smix-intent.gguf`를 `SoundManagerAI/models/`에 넣습니다. 만드는 방법은 [training/README.md](training/README.md)에 있습니다. 모델이 없어도 규칙 기반으로 동작합니다.
 
 ## 빌드
 
@@ -85,7 +86,7 @@ core/        DAW와 무관한 C++17 엔진 + 단위 테스트
   dialogue/    질문(이름/스타일/명확화/피드백/수동 변경)과 스타일 선택지
   ear/         악기 인식(log-mel + MLP)
   MixAssistant 능동형 대화 오케스트레이터 · MixHistory 기록/복원 · AutoMixer · RecipeEngine …
-  tools/       smix_ear_features, smix_ear_classify, smix_export_prompts, smix_intent_eval
+  tools/       smix_learn_mix, smix_ear_features, smix_ear_classify, smix_export_prompts, smix_intent_eval
 plugin/      JUCE 플러그인 (Engine, SessionHub, HostedChain + 절전, AssistantWorker, UI, 분석 그래프)
   profiler/    SoundManagerProfiler (별도 프로세스 플러그인 측정기)
   tests/       VST3 픽스처 + 호스팅 통합 테스트
@@ -97,6 +98,7 @@ docs/        설계·빌드 문서
 
 - **언어 모델 가중치는 저장소에 없습니다.** 저장소에는 학습 파이프라인(데이터 생성 → memopro LoRA → GGUF)만 있습니다. 이 환경에서는 Hugging Face에 접근할 수 없어 실제 모델을 학습하거나 품질을 측정하지 못했습니다. 통합 동작은 임의 가중치의 초소형 GGUF로 검증했습니다(불러오기, 문법 제약 JSON, KV 재사용, memopro 보관). 모델이 없으면 규칙 기반 이해기가 동작합니다.
 - **악기 인식 모델도 실제 데이터로 학습된 것이 아닙니다.** 파이프라인은 합성 신호로 검증했습니다. 실제 스템으로 학습해야 하며, 그 전까지는 휴리스틱으로 후보를 제안합니다.
+- **장르 프로필은 합성 곡으로만 검증했습니다**(레벨 오차 약 0.1 LU). 실제 곡에서는 리버브 리턴과 버스 컴프레션이 원본 트랙에 없어서 오차가 생기고, 그 정도는 fit 값으로 보입니다. 학습하는 것은 레벨과 톤의 평균이며, 플러그인 설정 자체를 따라 하지는 않습니다.
 - **LLM 가중치는 memopro 버퍼가 아니라 llama.cpp의 mmap으로 읽습니다.** 파일 기반 페이지라 OS가 내렸다가 다시 읽을 수 있어 memopro의 파일 버퍼와 같은 성격입니다. memopro는 LLM 상태(KV)와 나머지 대용량 데이터를 맡습니다.
 - **memopro는 Windows를 아직 지원하지 않습니다.** Windows 빌드는 같은 인터페이스의 대체 할당기를 씁니다(상한은 지키지만 압축은 없음).
 - **인스턴스 간 연결은 같은 프로세스 안에서만 됩니다.** 플러그인 샌드박스 모드에서는 IPC가 필요합니다(ARCHITECTURE.md). 버스 라우팅은 DAW가 알려주지 않아 이름 추정과 수동 지정을 씁니다.

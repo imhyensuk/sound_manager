@@ -3,11 +3,18 @@
 #include <algorithm>
 #include <cmath>
 
+#include "smix/style/GenreProfile.h"
+
 namespace smix
 {
 
 float GainBalancer::targetOffsetLu (InstrumentRole role)
 {
+    // Learned from the user's finished mixes of the active genre, when available.
+    if (const auto genre = style::activeGenre())
+        if (auto it = genre->balanceLu.find (role); it != genre->balanceLu.end())
+            return it->second;
+
     switch (role)
     {
         case InstrumentRole::LeadVocal:      return 0.0f;

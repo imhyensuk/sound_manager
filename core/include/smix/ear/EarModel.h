@@ -23,6 +23,9 @@ struct EarFeatures
     static constexpr int kMelBands = 64;
     static constexpr int kExtra = 8;
     static constexpr int kDim = 2 * kMelBands + kExtra;
+    /** Minimum fraction of sounding frames (last feature) for a window to say anything.
+        Low on purpose: a kick or tom track rings only a quarter of the time. */
+    static constexpr float kMinActive = 0.15f;
 
     static std::vector<float> extract (const float* mono, std::size_t numSamples, double sampleRate);
 };
