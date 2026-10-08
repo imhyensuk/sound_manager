@@ -138,3 +138,32 @@ TEST_CASE ("auto mixer plans a chain for an empty channel and then corrects a mu
     CHECK (plannedSnare);
     CHECK (kickCut);
 }
+
+TEST_CASE ("auto mixer leaves channels alone that the user just changed")
+{
+    auto session = test::makeSession();
+    PluginCatalog catalog;
+    auto* kick = session.find ("k");
+    kick->features.valid = true;
+    kick->features.secondsAnalysed = 10;
+    kick->features.shortTermLufs = -20;
+    kick->features.bandLevelDb = referenceCurve (InstrumentRole::Kick);
+    kick->features.bandLevelDb[3] += 8.0f;  // muddy
+
+    AutoMixer mixer;
+    mixer.getOptions().balanceLevels = false;
+    mixer.holdChannel ("k", 100.0, 60.0);
+    CHECK (mixer.tick (session, "db", catalog, 120.0).actions.empty());
+    CHECK_FALSE (mixer.tick (session, "db", catalog, 200.0).actions.empty());
+
+    // Plugins that the AI did not insert are never re-initialised.
+    AutoMixer fresh;
+    fresh.getOptions().correctTone = false;
+    fresh.getOptions().balanceLevels = false;
+    CHECK (fresh.tick (session, "db", catalog, 0.0).actions.empty());
+    fresh.markForInitialisation ("k", { "comp" });
+    const auto t = fresh.tick (session, "db", catalog, 1.0);
+    CHECK_FALSE (t.actions.empty());
+    for (auto& a : t.actions)
+        CHECK (a.slot == 1);
+}

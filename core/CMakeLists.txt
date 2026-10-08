@@ -29,6 +29,5 @@ if(SMIX_BUILD_TESTS)
         tests/IntentTests.cpp
         tests/AgentTests.cpp)
     target_link_libraries(smix_core_tests PRIVATE smix_core doctest::doctest)
-    enable_testing()
     add_test(NAME smix_core_tests COMMAND smix_core_tests)
 endif()

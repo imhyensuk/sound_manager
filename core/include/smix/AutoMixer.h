@@ -54,6 +54,19 @@ public:
     /** Forget correction history (e.g. after the user changed something by hand). */
     void reset();
 
+    /**
+        The user asked for a change on this channel (chat or by hand): leave its tone alone for a
+        while so the auto mixer never "corrects" a deliberate choice.
+    */
+    void holdChannel (const std::string& channelId, double nowSeconds, double holdSeconds = 600.0);
+    bool isHeld (const std::string& channelId, double nowSeconds) const;
+
+    /**
+        Plugins just inserted on a channel should receive role-aware starting settings once loaded.
+        The caller marks this after a successful set_chain (including the ones tick() itself plans).
+    */
+    void markForInitialisation (const std::string& channelId, const std::vector<std::string>& pluginUids);
+
 private:
     Options options;
     ChainPlanner planner;
@@ -61,7 +74,8 @@ private:
     GainBalancer gainBalancer;
 
     std::set<std::string> plannedChannels;
-    std::set<std::string> initialisedSlots;  // channelId|slot|uid
+    std::set<std::string> pendingInit;       // channelId|uid of freshly inserted plugins
+    std::map<std::string, double> heldUntil; // channelId -> time
     std::map<std::string, int> correctionCounts;  // channelId|goal
     std::map<std::string, double> lastCorrection; // channelId
 };

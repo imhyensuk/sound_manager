@@ -12,6 +12,28 @@ void AutoMixer::reset()
     lastCorrection.clear();
 }
 
+void AutoMixer::holdChannel (const std::string& channelId, double now, double holdSeconds)
+{
+    heldUntil[channelId] = now + holdSeconds;
+
+    // The user is already shaping these plugins: starting settings would overwrite their choices.
+    const auto prefix = channelId + "|";
+    for (auto it = pendingInit.begin(); it != pendingInit.end();)
+        it = it->compare (0, prefix.size(), prefix) == 0 ? pendingInit.erase (it) : std::next (it);
+}
+
+bool AutoMixer::isHeld (const std::string& channelId, double now) const
+{
+    const auto it = heldUntil.find (channelId);
+    return it != heldUntil.end() && now < it->second;
+}
+
+void AutoMixer::markForInitialisation (const std::string& channelId, const std::vector<std::string>& pluginUids)
+{
+    for (auto& uid : pluginUids)
+        pendingInit.insert (channelId + "|" + uid);
+}
+
 AutoMixer::Tick AutoMixer::tick (const MixSession& session, const std::string& rootId, const PluginCatalog& catalog, double now)
 {
     Tick t;
@@ -45,18 +67,17 @@ AutoMixer::Tick AutoMixer::tick (const MixSession& session, const std::string& r
             }
         }
 
-        // 2) Starting settings for plugins whose parameters are now known.
+        // 2) Starting settings for plugins the AI just inserted, once their parameters are known.
+        //    Plugins the user placed or already tuned are never reset.
         if (options.initialiseNewPlugins)
         {
             for (size_t s = 0; s < c->chain.size(); ++s)
             {
                 const auto& slot = c->chain[s];
-                if (slot.params.empty() || slot.mappers.empty())
+                const auto key = id + "|" + slot.pluginUid;
+                if (pendingInit.count (key) == 0 || slot.params.empty() || slot.mappers.empty())
                     continue;
-                const auto key = id + "|" + std::to_string (s) + "|" + slot.pluginUid;
-                if (initialisedSlots.count (key) != 0)
-                    continue;
-                initialisedSlots.insert (key);
+                pendingInit.erase (key);
                 auto res = recipes.initialSettings (*c, static_cast<int> (s));
                 t.actions.insert (t.actions.end(), res.actions.begin(), res.actions.end());
                 if (! res.actions.empty())
@@ -65,7 +86,8 @@ AutoMixer::Tick AutoMixer::tick (const MixSession& session, const std::string& r
         }
 
         // 3) Gentle tonal corrections.
-        if (! options.correctTone || ! c->features.valid || c->features.secondsAnalysed < options.minAnalysisSeconds)
+        if (! options.correctTone || ! c->features.valid || c->features.secondsAnalysed < options.minAnalysisSeconds
+            || isHeld (id, now))
             continue;
         if (auto it = lastCorrection.find (id); it != lastCorrection.end() && now - it->second < options.secondsBetweenCorrections)
             continue;
