@@ -44,6 +44,8 @@ std::optional<ChannelKind>    channelKindFromString (const std::string&);
 std::optional<InstrumentRole> roleFromString (const std::string&);
 std::optional<PluginCategory> categoryFromString (const std::string&);
 
+std::string koreanName (InstrumentRole);
+
 bool isDrumRole (InstrumentRole);
 bool isVocalRole (InstrumentRole);
 

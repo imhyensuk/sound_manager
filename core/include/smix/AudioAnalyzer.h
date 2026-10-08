@@ -6,6 +6,7 @@
 
 #include "smix/AudioFeatures.h"
 #include "smix/FFT.h"
+#include "smix/SpscRing.h"
 #include "smix/TripleBuffer.h"
 
 namespace smix
@@ -32,6 +33,27 @@ public:
 
     /** Consumer side; returns the newest published features. */
     AudioFeatures snapshot();
+
+    //==============================================================================
+    // Visualisation stream (RTA, waterfall, meters). Only computed while a view is open.
+    static constexpr int kRtaBins = 128;  // log-spaced 20 Hz .. 20 kHz
+
+    struct RtaFrame
+    {
+        std::array<float, kRtaBins> db {};  // dBFS per bin
+    };
+
+    struct MeterFrame
+    {
+        float peakL = -120, peakR = -120, rmsL = -120, rmsR = -120;
+        float momentaryLufs = -120, shortTermLufs = -120, correlation = 1;
+    };
+
+    void setVisualsEnabled (bool on) noexcept { visualsEnabled.store (on, std::memory_order_relaxed); }
+    bool visualsAreEnabled() const noexcept { return visualsEnabled.load (std::memory_order_relaxed); }
+    bool popRta (RtaFrame& f) noexcept { return rtaRing.pop (f); }
+    bool popMeter (MeterFrame& m) noexcept { return meterRing.pop (m); }
+    static float rtaBinFrequency (int bin) noexcept;
 
 private:
     static constexpr int kFftOrder = 11;
@@ -102,6 +124,13 @@ private:
     long framesAnalysed = 0;
 
     TripleBuffer<Published> exchange;
+
+    std::atomic<bool> visualsEnabled { false };
+    SpscRing<RtaFrame, 64> rtaRing;
+    SpscRing<MeterFrame, 64> meterRing;
+    std::vector<std::pair<int, int>> rtaBinRanges;  // FFT bin range per RTA bin
+    float fftNorm = 1.0f;
+    double peakL = 0, peakR = 0, sumL = 0, sumR = 0;
 };
 
 } // namespace smix

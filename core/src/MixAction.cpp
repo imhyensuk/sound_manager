@@ -150,7 +150,10 @@ ParseResult parseActions (const nlohmann::json& actions)
 
 nlohmann::json ActionOutcome::toJson() const
 {
-    return { { "action", action.toJson() }, { "ok", ok }, { "result", message } };
+    nlohmann::json j { { "action", action.toJson() }, { "ok", ok }, { "result", message } };
+    if (needsUser)
+        j["manual_request"] = manualRequest;
+    return j;
 }
 
 //==============================================================================
@@ -175,6 +178,9 @@ ActionOutcome ActionExecutor::execute (const MixAction& a, const std::string& sc
         return { a, false, "unknown channel '" + a.channelId + "'" };
     if (! session.inScope (scopeRootId, a.channelId))
         return { a, false, "channel '" + a.channelId + "' is outside this instance's scope" };
+
+    if (auto blocked = checkProtection (a, *channel))
+        return *blocked;
 
     switch (a.type)
     {
@@ -213,6 +219,74 @@ ActionOutcome ActionExecutor::execute (const MixAction& a, const std::string& sc
         }
     }
     return { a, false, "unhandled action" };
+}
+
+std::optional<ActionOutcome> ActionExecutor::checkProtection (const MixAction& a, const ChannelState& c) const
+{
+    const auto channelName = c.name.empty() ? c.id : c.name;
+    auto blocked = [&] (const std::string& what, const std::string& request) {
+        ActionOutcome o { a, false, what + " is protected - not changed by the AI" };
+        o.needsUser = true;
+        o.manualRequest = request + (a.reason.empty() ? std::string() : " (이유: " + a.reason + ")");
+        return o;
+    };
+
+    auto describeParam = [&] (const SlotState& slot) {
+        const ParamInfo* p = a.paramIndex >= 0 ? slot.findParam (a.paramIndex) : slot.findParam (a.param);
+        std::string name = p != nullptr ? p->name : a.param;
+        std::string change;
+        if (a.type == ActionType::SetParam && a.value)
+            change = "을(를) " + formatValue (*a.value, a.unit == "normalized" ? "" : a.unit) + "(으)로";
+        else
+            change = "을(를) " + formatValue (a.delta, a.unit == "normalized" ? "" : a.unit) + " 만큼";
+        return slot.pluginName + " › " + name + change;
+    };
+
+    const bool touchesSlot = a.type == ActionType::SetParam || a.type == ActionType::NudgeParam
+                             || a.type == ActionType::SetBypass || a.type == ActionType::MoveSlot;
+
+    if (c.protectedChannel)
+    {
+        std::string request = "'" + channelName + "' 채널은 보호되어 있어 AI가 수정하지 않았어요. 필요하다고 판단한 변경: ";
+        if (a.type == ActionType::NudgeGain || a.type == ActionType::SetGain)
+            request += "볼륨을 " + formatValue (a.type == ActionType::SetGain ? *a.value : a.delta, "dB")
+                       + (a.type == ActionType::SetGain ? "로" : " 만큼") + " 직접 조절해 주세요.";
+        else if (touchesSlot && a.slot >= 0 && a.slot < static_cast<int> (c.chain.size()))
+            request += describeParam (c.chain[static_cast<size_t> (a.slot)]) + " 직접 바꿔 주세요.";
+        else
+            request += "플러그인 체인 변경(" + toString (a.type) + ")을 직접 검토해 주세요.";
+        return blocked ("channel '" + channelName + "'", request);
+    }
+
+    if (touchesSlot && a.slot >= 0 && a.slot < static_cast<int> (c.chain.size()))
+    {
+        const auto& slot = c.chain[static_cast<size_t> (a.slot)];
+        if (slot.protectedSlot)
+        {
+            const auto request = "'" + channelName + "'의 " + slot.pluginName + "은(는) 보호되어 있어요. 필요하다고 판단한 변경: "
+                                 + (a.type == ActionType::SetBypass ? std::string (a.bypass ? "바이패스" : "활성화")
+                                                                    : describeParam (slot))
+                                 + " 직접 바꿔 주세요.";
+            return blocked ("plugin '" + slot.pluginName + "'", request);
+        }
+    }
+
+    if (a.type == ActionType::SetChain)
+    {
+        // A protected plugin must stay in the chain, in the same position relative to the others.
+        for (size_t i = 0; i < c.chain.size(); ++i)
+        {
+            const auto& slot = c.chain[i];
+            if (! slot.protectedSlot)
+                continue;
+            const bool kept = std::find (a.plugins.begin(), a.plugins.end(), slot.pluginUid) != a.plugins.end();
+            if (! kept)
+                return blocked ("plugin '" + slot.pluginName + "'",
+                                "'" + channelName + "'의 보호된 " + slot.pluginName
+                                    + "을(를) 빼는 체인 변경이 필요하다고 판단했어요. 직접 검토해 주세요.");
+        }
+    }
+    return std::nullopt;
 }
 
 ActionOutcome ActionExecutor::executeParam (const MixAction& a, ChannelState& channel)

@@ -14,6 +14,7 @@ option(SMIX_BUILD_TESTS  "Build core unit tests" ON)
 option(SMIX_BUILD_PLUGIN "Build the JUCE plugin (VST3/AU/AAX/Standalone)" ON)
 
 include(cmake/Dependencies.cmake)
+include(cmake/Memopro.cmake)
 
 if(SMIX_BUILD_TESTS)
     enable_testing()

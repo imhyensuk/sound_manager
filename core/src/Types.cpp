@@ -63,6 +63,24 @@ std::optional<ChannelKind>    channelKindFromString (const std::string& s) { ret
 std::optional<InstrumentRole> roleFromString (const std::string& s)        { return lookupValue (kRoles, s); }
 std::optional<PluginCategory> categoryFromString (const std::string& s)    { return lookupValue (kCategories, s); }
 
+std::string koreanName (InstrumentRole r)
+{
+    switch (r)
+    {
+        case InstrumentRole::Kick: return "킥"; case InstrumentRole::Snare: return "스네어";
+        case InstrumentRole::HiHat: return "하이햇"; case InstrumentRole::Toms: return "탐";
+        case InstrumentRole::Overheads: return "오버헤드"; case InstrumentRole::Percussion: return "퍼커션";
+        case InstrumentRole::DrumBus: return "드럼 버스"; case InstrumentRole::Bass: return "베이스";
+        case InstrumentRole::LeadVocal: return "리드 보컬"; case InstrumentRole::BackingVocal: return "코러스";
+        case InstrumentRole::AcousticGuitar: return "어쿠스틱 기타"; case InstrumentRole::ElectricGuitar: return "일렉 기타";
+        case InstrumentRole::Piano: return "피아노"; case InstrumentRole::Keys: return "건반";
+        case InstrumentRole::Synth: return "신스"; case InstrumentRole::Pad: return "패드";
+        case InstrumentRole::Strings: return "스트링"; case InstrumentRole::Brass: return "브라스";
+        case InstrumentRole::FX: return "효과음"; case InstrumentRole::MixBus: return "버스";
+        case InstrumentRole::Master: return "마스터"; default: return "알 수 없음";
+    }
+}
+
 bool isDrumRole (InstrumentRole r)
 {
     switch (r)

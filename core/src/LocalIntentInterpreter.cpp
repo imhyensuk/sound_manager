@@ -174,8 +174,13 @@ ParsedIntent LocalIntentInterpreter::parse (const std::string& rawText, const Mi
             resolveRole (intent.mentionedRoles.front());
     }
 
-    // Nothing named, or "전체/master": act on the instance's own channel.
-    if (intent.targetChannelIds.empty() && (intent.mentionedRoles.empty() || intent.mentionedRoles.front() == InstrumentRole::Master))
+    // "전체/master" -> the instance's own channel. Nothing named: on a track instance that is the
+    // channel itself; on a bus/master it is ambiguous (the caller asks which channel is meant).
+    const auto* root = session.find (rootId);
+    const bool rootIsTrack = root != nullptr && root->kind == ChannelKind::Track;
+    if (intent.targetChannelIds.empty()
+        && ((! intent.mentionedRoles.empty() && intent.mentionedRoles.front() == InstrumentRole::Master)
+            || (intent.mentionedRoles.empty() && (rootIsTrack || containsAny (text, { "전체", "믹스", "whole", "mix", "everything" })))))
         intent.targetChannelIds.push_back (rootId);
 
     // --- goals --------------------------------------------------------------------

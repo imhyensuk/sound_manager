@@ -21,6 +21,7 @@ struct SlotState
     std::string pluginName;
     PluginCategory category = PluginCategory::Unknown;
     bool bypassed = false;
+    bool protectedSlot = false;  // the user forbids the AI to touch this plugin
     std::vector<ParamInfo> params;
     std::map<int, ValueMapper> mappers;  // param index -> learned value curve (filled by the host layer)
 
@@ -42,6 +43,8 @@ struct ChannelState
     std::string parentId;    // bus/master this channel feeds; empty = master
     float aiGainDb = 0.0f;   // gain stage controlled by the AI (balance)
     bool gainLocked = false; // user forbids the AI to touch the level
+    bool protectedChannel = false;  // the user forbids the AI to change anything on this channel
+    std::string style;       // chosen mixing style for this channel ("" = not asked yet)
     AudioFeatures features;
     std::vector<SlotState> chain;
 

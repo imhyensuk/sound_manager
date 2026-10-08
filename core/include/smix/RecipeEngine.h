@@ -67,6 +67,16 @@ public:
     /** Sensible starting settings for a freshly inserted plugin (role-aware). */
     Result initialSettings (const ChannelState&, int slotIndex) const;
 
+    /** Single building blocks, for other planners (style matching, the language model). */
+    Result eq (const ChannelState& c, double freqHz, double gainDb) const { Result r; eqMove (c, { freqHz, gainDb }, r); return r; }
+    Result nudge (const ChannelState& c, PluginCategory cat, ParamRole role, double delta, const std::string& unit,
+                  const std::string& reason) const
+    {
+        Result r;
+        paramNudge (c, cat, role, delta, unit, r, reason);
+        return r;
+    }
+
 private:
     struct EqMove { double freqHz; double gainDb; };
 

@@ -16,6 +16,11 @@ inline float powerToDb (double p) noexcept
 } // namespace
 
 //==============================================================================
+float AudioAnalyzer::rtaBinFrequency (int bin) noexcept
+{
+    return static_cast<float> (20.0 * std::pow (1000.0, (bin + 0.5) / kRtaBins));
+}
+
 float SpectrumBands::centreHz (int band) noexcept
 {
     return std::sqrt (kEdgesHz[static_cast<size_t> (band)] * kEdgesHz[static_cast<size_t> (band + 1)]);
@@ -142,6 +147,19 @@ void AudioAnalyzer::prepare (double newSampleRate)
     }
 
     blockLength = std::max (1, static_cast<int> (sampleRate * 0.1));
+
+    double windowSum = 0;
+    for (auto w : window) windowSum += w;
+    fftNorm = static_cast<float> (2.0 / windowSum);
+    rtaBinRanges.assign (kRtaBins, { 1, 1 });
+    for (int k = 0; k < kRtaBins; ++k)
+    {
+        const double f0 = 20.0 * std::pow (1000.0, static_cast<double> (k) / kRtaBins);
+        const double f1 = 20.0 * std::pow (1000.0, static_cast<double> (k + 1) / kRtaBins);
+        const int b0 = std::clamp (static_cast<int> (f0 * kFftSize / sampleRate), 1, kFftSize / 2 - 1);
+        const int b1 = std::clamp (static_cast<int> (f1 * kFftSize / sampleRate), b0, kFftSize / 2 - 1);
+        rtaBinRanges[static_cast<size_t> (k)] = { b0, b1 };
+    }
     reset();
 }
 
@@ -191,6 +209,10 @@ void AudioAnalyzer::process (const float* left, const float* right, int numSampl
         }
 
         // Level / stereo path
+        peakL = std::max (peakL, static_cast<double> (std::abs (l)));
+        peakR = std::max (peakR, static_cast<double> (std::abs (r)));
+        sumL += static_cast<double> (l) * l;
+        sumR += static_cast<double> (r) * r;
         const double m = 0.5 * (l + r), s = 0.5 * (l - r);
         sumSquares += 0.5 * (static_cast<double> (l) * l + static_cast<double> (r) * r);
         peak = std::max (peak, static_cast<double> (std::max (std::abs (l), std::abs (r))));
@@ -241,6 +263,20 @@ void AudioAnalyzer::analyseFrame() noexcept
         logSum += std::log (p + 1.0e-20);
         flux += std::max (0.0f, mag - prev);
         ++counted;
+    }
+
+    if (visualsEnabled.load (std::memory_order_relaxed))
+    {
+        RtaFrame frame;
+        for (int k = 0; k < kRtaBins; ++k)
+        {
+            const auto [b0, b1] = rtaBinRanges[static_cast<size_t> (k)];
+            float mag = 0.0f;
+            for (int b = b0; b <= b1; ++b)
+                mag = std::max (mag, std::abs (fftBuffer[static_cast<size_t> (b)]));
+            frame.db[static_cast<size_t> (k)] = 20.0f * std::log10 (std::max (mag * fftNorm, 1.0e-7f));
+        }
+        rtaRing.push (frame);
     }
 
     // Ignore silence so that the noise floor does not pollute the picture.
@@ -306,6 +342,26 @@ void AudioAnalyzer::finishLoudnessBlock() noexcept
             ++gatedBlockCount;
         }
     }
+
+    if (visualsEnabled.load (std::memory_order_relaxed))
+    {
+        MeterFrame mf;
+        auto db = [] (double v) { return static_cast<float> (20.0 * std::log10 (std::max (v, 1.0e-6))); };
+        mf.peakL = db (peakL);
+        mf.peakR = db (peakR);
+        mf.rmsL = db (std::sqrt (sumL / blockSamples));
+        mf.rmsR = db (std::sqrt (sumR / blockSamples));
+        double momentary = 0;
+        const int count = std::min (4, stCount);
+        for (int i = 1; i <= count; ++i)
+            momentary += stBlocks[static_cast<size_t> ((stIndex - i + kShortTermBlocks) % kShortTermBlocks)];
+        mf.momentaryLufs = static_cast<float> (-0.691 + 10.0 * std::log10 (std::max (momentary / std::max (1, count), 1.0e-12)));
+        mf.shortTermLufs = stLufs;
+        const double denom = std::sqrt (ll * rr);
+        mf.correlation = denom > 1.0e-12 ? static_cast<float> (lr / denom) : 1.0f;
+        meterRing.push (mf);
+    }
+    peakL = peakR = sumL = sumR = 0;
 
     blockPower = 0;
     blockSamples = 0;

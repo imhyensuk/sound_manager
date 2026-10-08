@@ -24,7 +24,7 @@ TEST_CASE ("'드럼의 킥이 조금 더 단단한 소리가 나면 좋겠어' t
     const auto i = li.parse ("드럼의 킥이 조금 더 단단한 소리가 나면 좋겠어", session, "m");
     REQUIRE (i.targetChannelIds.size() == 1);
     CHECK (i.targetChannelIds[0] == "k");
-    REQUIRE (hasGoal (i, SoundGoal::Tighter));
+    REQUIRE ((hasGoal (i, SoundGoal::Tighter)));
     CHECK (i.amount == doctest::Approx (0.5f));
 }
 
@@ -66,25 +66,25 @@ TEST_CASE ("negation and problem words")
     LocalIntentInterpreter li;
 
     auto i = li.parse ("보컬이 너무 밝아요", session, "m");
-    CHECK (hasGoal (i, SoundGoal::Darker));
+    CHECK ((hasGoal (i, SoundGoal::Darker)));
     CHECK (i.targetChannelIds == std::vector<std::string> { "v" });
 
     i = li.parse("the vocal sounds harsh", session, "m");
-    CHECK (hasGoal (i, SoundGoal::LessHarsh));
+    CHECK ((hasGoal (i, SoundGoal::LessHarsh)));
 
     i = li.parse ("베이스가 너무 얇아", session, "m");
-    CHECK (hasGoal (i, SoundGoal::MoreBody));
+    CHECK ((hasGoal (i, SoundGoal::MoreBody)));
     CHECK (i.targetChannelIds == std::vector<std::string> { "b" });
 
     i = li.parse ("make the bass drum a lot punchier", session, "m");
     CHECK (i.targetChannelIds == std::vector<std::string> { "k" });
-    CHECK (hasGoal (i, SoundGoal::Punchier));
+    CHECK ((hasGoal (i, SoundGoal::Punchier)));
     CHECK (i.amount == doctest::Approx (1.5f));
 
     // "부탁해요" (please) must not be read as "탁" (muddy).
     i = li.parse ("보컬 조금 키워주세요 부탁해요", session, "m");
-    CHECK (hasGoal (i, SoundGoal::Louder));
-    CHECK_FALSE (hasGoal (i, SoundGoal::LessMuddy));
+    CHECK ((hasGoal (i, SoundGoal::Louder)));
+    CHECK_FALSE ((hasGoal (i, SoundGoal::LessMuddy)));
 }
 
 TEST_CASE ("drum-bus instance cannot be steered onto the vocal")

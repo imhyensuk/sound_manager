@@ -51,6 +51,7 @@ nlohmann::json SlotState::toJson (bool includeParams, size_t maxParams) const
 {
     nlohmann::json j { { "plugin_uid", pluginUid }, { "plugin", pluginName },
                        { "category", toString (category) }, { "bypassed", bypassed },
+                       { "protected", protectedSlot },
                        { "num_params", params.size() } };
     if (includeParams)
     {
@@ -75,7 +76,8 @@ nlohmann::json ChannelState::toJson (bool includeParams, size_t maxParamsPerSlot
     const auto profile = PerceptualProfile::analyse (features, role);
     return { { "id", id }, { "name", name }, { "kind", toString (kind) }, { "role", toString (role) },
              { "parent", parentId.empty() ? "master" : parentId }, { "ai_gain_db", aiGainDb },
-             { "gain_locked", gainLocked }, { "features", features.toJson() },
+             { "gain_locked", gainLocked }, { "protected", protectedChannel }, { "style", style },
+             { "features", features.toJson() },
              { "perception", profile.toJson() }, { "chain", chainJson } };
 }
 

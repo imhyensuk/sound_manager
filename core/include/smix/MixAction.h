@@ -61,6 +61,9 @@ struct ActionLimits
     float maxGainStepDb = 6.0f;     // per action
     float maxNormalisedStep = 0.5f; // per action, for parameter moves
     size_t maxChainLength = 8;
+
+    /** Limits for restoring a recorded state (user-initiated): any value may be set back. */
+    static ActionLimits forRestore() { ActionLimits l; l.maxGainStepDb = 48.0f; l.maxNormalisedStep = 1.0f; l.maxChainLength = 64; return l; }
 };
 
 /** The host side that actually turns resolved actions into sound. */
@@ -77,9 +80,17 @@ public:
 
 struct ActionOutcome
 {
+    ActionOutcome() = default;
+    ActionOutcome (MixAction a, bool success, std::string text) : action (std::move (a)), ok (success), message (std::move (text)) {}
+
     MixAction action;
     bool ok = false;
     std::string message;  // human readable result or error ("Band 1 Gain: 0.0 dB -> +3.0 dB")
+
+    /** Blocked because the user protected the channel/plugin: the AI asks the user to do it by hand. */
+    bool needsUser = false;
+    std::string manualRequest;
+
     nlohmann::json toJson() const;
 };
 
@@ -99,6 +110,7 @@ private:
     ActionOutcome executeParam (const MixAction&, ChannelState&);
     ActionOutcome executeGain (const MixAction&, ChannelState&);
     ActionOutcome executeChain (const MixAction&, ChannelState&);
+    std::optional<ActionOutcome> checkProtection (const MixAction&, const ChannelState&) const;
 
     MixSession& session;
     const PluginCatalog& catalog;
