@@ -169,6 +169,7 @@ bool EarModel::load (const std::string& path, std::string& error)
         return false;
     }
     labels = j.value ("classes", std::vector<std::string> {});
+    displayNames = j.value ("names", std::vector<std::string> {});  // optional (user folder names)
     dims = j.value ("dims", std::vector<int> {});
     roles.clear();
     for (auto& r : j.value ("roles", std::vector<std::string> {}))
@@ -207,6 +208,9 @@ bool EarModel::load (const std::string& path, std::string& error)
 
 std::vector<EarModel::Guess> EarModel::classify (const std::vector<float>& features, std::size_t topK) const
 {
+    // Mostly silence: there is nothing to recognise (guessing would only mislead the naming question).
+    if (static_cast<int> (features.size()) == EarFeatures::kDim && features.back() < 0.4f)
+        return {};
     if (! loaded || static_cast<int> (features.size()) != dims.front())
         return heuristicGuess (features);
 
@@ -249,7 +253,7 @@ std::vector<EarModel::Guess> EarModel::classify (const std::vector<float>& featu
     for (auto& v : x) { v = std::exp (v - mx); z += v; }
     std::vector<Guess> out;
     for (size_t c = 0; c < x.size(); ++c)
-        out.push_back ({ labels[c], roles[c], static_cast<float> (x[c] / z) });
+        out.push_back ({ labels[c], c < displayNames.size() ? displayNames[c] : std::string(), roles[c], static_cast<float> (x[c] / z) });
     std::sort (out.begin(), out.end(), [] (auto& a, auto& b) { return a.probability > b.probability; });
     if (out.size() > topK)
         out.resize (topK);
@@ -287,7 +291,7 @@ std::vector<EarModel::Guess> heuristicGuess (const std::vector<float>& f)
     const float centroidHz = std::pow (10.0f, e[0]) - 1.0f;
     const float crest = e[3] * 20.0f, onsetRate = e[4] * 10.0f, flat = e[1];
     std::vector<EarModel::Guess> g;
-    auto add = [&g] (const char* label, InstrumentRole r, float p) { g.push_back ({ label, r, p }); };
+    auto add = [&g] (const char* label, InstrumentRole r, float p) { g.push_back ({ label, {}, r, p }); };
     if (onsetRate > 1.0f && crest > 12.0f)
     {
         if (centroidHz < 600.0f)       add ("kick", InstrumentRole::Kick, 0.5f);

@@ -1,11 +1,15 @@
-// Extracts ear-model features from labelled WAV files for training (training/ear/train_ear.py).
-//   smix_ear_features <out.csv> <label>=<wav> [<label>=<wav> ...]
-//   smix_ear_features <out.csv> --dir <root>     (sub-folder name = label)
-// Every file is cut into 3 s windows (hop 1.5 s); one CSV row per window: label,f0,...,fN
+// Extracts ear-model features from labelled WAV stems for training (training/ear/train_ear.py).
+//   smix_ear_features <out.csv> --dir <root>              (each sub-folder of root is one class; any depth below it)
+//   smix_ear_features <out.csv> <label>=<wav> [...]
+// Every file is cut into 3 s windows (hop 1.5 s). Windows that are (mostly) silent - long rests in
+// multitrack stems - are skipped, so the model only learns from the instrument actually playing.
+// CSV row: label,file_index,f0,...,fN    (file_index groups windows of one file for a leak-free split)
+// <out.csv>.files lists file_index -> path.
 
-#include <cstdio>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -15,15 +19,21 @@
 
 namespace fs = std::filesystem;
 
-static int addFile (std::ofstream& out, const std::string& label, const std::string& path)
+namespace
 {
+struct Counts { int windows = 0, silent = 0; };
+
+Counts addFile (std::ofstream& out, std::ofstream& files, int index, const std::string& label, const std::string& path, float silenceDb)
+{
+    Counts c;
     smix::WavData wav;
     std::string err;
     if (! smix::readWav (path, wav, err))
     {
-        std::cerr << "skip " << path << ": " << err << "\n";
-        return 0;
+        std::cerr << "skip " << path << ": " << err << " (convert to WAV: ffmpeg -i in.flac out.wav)\n";
+        return c;
     }
+    files << index << "\t" << label << "\t" << path << "\n";
     std::vector<float> mono (wav.samples[0].size());
     for (size_t i = 0; i < mono.size(); ++i)
     {
@@ -31,38 +41,69 @@ static int addFile (std::ofstream& out, const std::string& label, const std::str
         for (auto& ch : wav.samples) s += ch[i];
         mono[i] = s / static_cast<float> (wav.channels);
     }
+
     const size_t win = static_cast<size_t> (wav.sampleRate * 3.0), hop = win / 2;
-    int rows = 0;
-    for (size_t start = 0; start + win <= mono.size() || (start == 0 && ! mono.empty()); start += hop)
+    for (size_t start = 0; start < mono.size(); start += hop)
     {
         const size_t n = std::min (win, mono.size() - start);
+        if (n < win / 2)
+            break;
+        double sq = 0;
+        for (size_t i = 0; i < n; ++i)
+            sq += static_cast<double> (mono[start + i]) * mono[start + i];
+        const double rmsDb = 10.0 * std::log10 (sq / static_cast<double> (n) + 1.0e-20);
         const auto f = smix::ear::EarFeatures::extract (mono.data() + start, n, wav.sampleRate);
-        out << label;
+        // Too quiet overall, or less than 40 % of the window actually sounding.
+        if (rmsDb < silenceDb || f.back() < 0.4f)
+        {
+            ++c.silent;
+            continue;
+        }
+        out << label << "," << index;
         for (auto v : f) out << "," << v;
         out << "\n";
-        ++rows;
-        if (start + win >= mono.size())
-            break;
+        ++c.windows;
     }
-    return rows;
+    return c;
 }
+
+bool isWav (const fs::path& p)
+{
+    auto e = p.extension().string();
+    for (auto& ch : e) ch = static_cast<char> (std::tolower (static_cast<unsigned char> (ch)));
+    return e == ".wav";
+}
+} // namespace
 
 int main (int argc, char** argv)
 {
     if (argc < 3)
     {
-        std::cerr << "usage: smix_ear_features out.csv label=file.wav ... | out.csv --dir root\n";
+        std::cerr << "usage: smix_ear_features out.csv --dir root [--silence-db -50] | out.csv label=file.wav ...\n";
         return 2;
     }
-    std::ofstream out (argv[1]);
-    int rows = 0;
+    const std::string outPath = argv[1];
+    std::ofstream out (outPath), files (outPath + ".files");
+    float silenceDb = -50.0f;
+    for (int i = 2; i + 1 < argc; ++i)
+        if (std::string (argv[i]) == "--silence-db")
+            silenceDb = std::stof (argv[i + 1]);
+
+    int index = 0;
+    std::map<std::string, Counts> perLabel;
+    auto add = [&] (const std::string& label, const std::string& path) {
+        const auto c = addFile (out, files, index++, label, path, silenceDb);
+        perLabel[label].windows += c.windows;
+        perLabel[label].silent += c.silent;
+    };
+
     if (std::string (argv[2]) == "--dir" && argc > 3)
     {
-        for (auto& labelDir : fs::directory_iterator (argv[3]))
+        for (auto& labelDir : fs::directory_iterator (fs::u8path (argv[3])))
             if (labelDir.is_directory())
                 for (auto& f : fs::recursive_directory_iterator (labelDir.path()))
-                    if (f.path().extension() == ".wav" || f.path().extension() == ".WAV")
-                        rows += addFile (out, labelDir.path().filename().string(), f.path().string());
+                    if (f.is_regular_file() && isWav (f.path()))
+                        add (labelDir.path().filename().u8string(), f.path().u8string());
     }
     else
     {
@@ -71,9 +112,16 @@ int main (int argc, char** argv)
             const std::string a = argv[i];
             const auto eq = a.find ('=');
             if (eq != std::string::npos)
-                rows += addFile (out, a.substr (0, eq), a.substr (eq + 1));
+                add (a.substr (0, eq), a.substr (eq + 1));
         }
     }
-    std::cerr << rows << " feature rows, dim " << smix::ear::EarFeatures::kDim << "\n";
-    return rows > 0 ? 0 : 1;
+
+    int total = 0;
+    for (auto& [label, c] : perLabel)
+    {
+        std::cerr << "  " << label << ": " << c.windows << " windows (" << c.silent << " silent skipped)\n";
+        total += c.windows;
+    }
+    std::cerr << total << " feature rows from " << index << " files, dim " << smix::ear::EarFeatures::kDim << "\n";
+    return total > 0 ? 0 : 1;
 }

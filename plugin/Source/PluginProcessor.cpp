@@ -129,7 +129,8 @@ void SoundManagerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     const float* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer (1) : nullptr;
     analyzer.process (left, right, buffer.getNumSamples());
 
-    if (earCapturing.load (std::memory_order_acquire))
+    // Only blocks that carry sound are recorded, so the recogniser hears the instrument, not the rests.
+    if (earCapturing.load (std::memory_order_acquire) && buffer.getMagnitude (0, buffer.getNumSamples()) > 1.0e-3f)
     {
         int pos = earWritePos.load (std::memory_order_relaxed);
         for (int i = 0; i < buffer.getNumSamples() && pos < earLength; ++i)
@@ -472,7 +473,8 @@ std::vector<std::string> SoundManagerProcessor::nameSuggestions()
         earSuggestions.clear();
         for (auto& g : guesses)
             if (g.probability > 0.15f)
-                earSuggestions.push_back (g.role != smix::InstrumentRole::Unknown ? smix::koreanName (g.role) : g.label);
+                earSuggestions.push_back (! g.display.empty() ? g.display
+                                          : g.role != smix::InstrumentRole::Unknown ? smix::koreanName (g.role) : g.label);
     }
     return earSuggestions;
 }

@@ -16,14 +16,33 @@
 
 ## 2. 악기 인식 모델 (채널 이름 후보)
 
-```bash
-cmake --build build --target smix_ear_features smix_ear_classify
-./build/core/smix_ear_features features.csv --dir stems/     # stems/kick/*.wav, stems/lead_vocal/*.wav, ...
-python ear/train_ear.py features.csv ear.smxear              # numpy만 사용, CPU로 충분
-./build/core/smix_ear_classify ear.smxear some_track.wav
+가지고 계신 스템을 **클래스마다 폴더 하나**로 정리합니다. 폴더 이름이 그대로 플러그인의 이름 후보 버튼에 표시되므로 한글 이름을 써도 됩니다.
+
+```
+stems/남성 보컬/곡1.wav, 곡2.wav ...   stems/여성 보컬/   stems/킥/   stems/스네어/
+stems/메인건반/   stems/세컨건반/   stems/서드건반/   stems/어쿠스틱 기타/   stems/일렉 기타/
+stems/베이스 기타/   stems/Pad/   stems/Tom1/   stems/Tom2/   stems/Tom3/   stems/HiHat/   stems/OverHead/
 ```
 
-특징 추출은 플러그인과 같은 C++ 코드를 써서 학습과 추론의 특징이 항상 같습니다. 데이터는 자신의 멀티트랙 스템이나 공개 스템 데이터(MUSDB18, MedleyDB, Slakh 등)를 악기별 폴더로 정리해 씁니다. `ear/make_synthetic.py`는 파이프라인 확인용 합성 신호를 만듭니다(실사용 모델이 아님).
+```bash
+cmake --build build --target smix_ear_features smix_ear_classify
+./build/core/smix_ear_features features.csv --dir stems/       # 무음 구간은 자동 제외
+python training/ear/train_ear.py features.csv ear.smxear       # 검증 정확도 + 혼동 행렬 출력
+./build/core/smix_ear_classify ear.smxear 새곡_보컬.wav         # 확인
+```
+
+- **WAV만 읽습니다.** FLAC·AIFF 등은 먼저 변환하세요: `ffmpeg -i in.flac out.wav`.
+- **무음 제외:** 3초 구간 중 -50 dBFS보다 작거나 소리가 나는 비율이 40% 미만인 구간은 학습에서 빠집니다. 기준은 `--silence-db`로 바꿉니다.
+- **파일 단위 검증:** 같은 곡의 구간이 학습과 검증에 동시에 들어가지 않아서, 정확도가 실제 새 곡에서의 성능에 가깝습니다. 클래스마다 파일이 2개 이상이어야 검증에 쓰입니다.
+- **클래스 균형:** 구간 수가 적은 클래스(예: Tom)에 가중치를 줍니다.
+- **소리로 구분할 수 없는 클래스:** 메인/세컨/서드 건반은 편곡상의 역할이라 같은 악기면 소리만으로는 구분이 어렵습니다. 혼동 행렬의 "자주 헷갈리는 쌍"을 보고 합치세요. 남성/여성 보컬, Tom1/2/3는 음역이 달라 대개 구분됩니다.
+  ```bash
+  python training/ear/train_ear.py features.csv ear.smxear --merge "메인건반,세컨건반,서드건반=건반"
+  ```
+- **역할 연결:** 남성/여성 보컬은 리드 보컬, Tom1~3은 탐, 건반류는 건반, 베이스 기타는 베이스로 연결되어 믹싱 레시피가 적용됩니다. 화면에는 폴더 이름이 그대로 보입니다.
+- **설치:** 만든 `ear.smxear`를 `SoundManagerAI/models/`에 넣습니다.
+
+`ear/make_synthetic.py`는 파이프라인 확인용 합성 신호를 만듭니다(실사용 모델 아님).
 
 ## 3. 테스트용 초소형 GGUF
 

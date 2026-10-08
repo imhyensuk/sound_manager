@@ -47,7 +47,8 @@ public:
 
     struct Guess
     {
-        std::string label;  // human label from the model ("kick", "lead vocal", ...)
+        std::string label;    // class label from the model ("kick", "male_vocal", ...)
+        std::string display;  // name shown to the user ("남성 보컬"), empty if the model has none
         InstrumentRole role = InstrumentRole::Unknown;
         float probability = 0.0f;
     };
@@ -65,6 +66,7 @@ public:
 private:
     mem::Runtime* runtime;
     std::vector<std::string> labels;
+    std::vector<std::string> displayNames;
     std::vector<InstrumentRole> roles;
     std::vector<int> dims;
     std::string filePath;

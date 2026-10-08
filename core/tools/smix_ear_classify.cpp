@@ -36,10 +36,19 @@ int main (int argc, char** argv)
             for (auto& ch : wav.samples) v += ch[s];
             mono[s] = v / static_cast<float> (wav.channels);
         }
+        // The loudest 3 s: stems are often silent at the start.
         const size_t n = std::min (mono.size(), static_cast<size_t> (wav.sampleRate * 3.0));
+        size_t best = 0;
+        double bestEnergy = -1;
+        for (size_t start = 0; start + n <= mono.size(); start += n / 2)
+        {
+            double e = 0;
+            for (size_t k = 0; k < n; ++k) e += static_cast<double> (mono[start + k]) * mono[start + k];
+            if (e > bestEnergy) { bestEnergy = e; best = start; }
+        }
         std::cout << argv[i] << ":";
-        for (auto& g : model.classify (smix::ear::EarFeatures::extract (mono.data(), n, wav.sampleRate)))
-            std::cout << "  " << g.label << " " << static_cast<int> (g.probability * 100) << "%";
+        for (auto& g : model.classify (smix::ear::EarFeatures::extract (mono.data() + best, n, wav.sampleRate)))
+            std::cout << "  " << (g.display.empty() ? g.label : g.display) << " " << static_cast<int> (g.probability * 100) << "%";
         std::cout << "\n";
     }
     return 0;
