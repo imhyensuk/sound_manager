@@ -1,7 +1,9 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <smix/ParamSemantics.h>
 #include <smix/ValueMapper.h>
+#include <smix/mem/MemoryRuntime.h>
 
 #include <atomic>
 #include <map>
@@ -17,11 +19,21 @@ class HostedChain
 public:
     struct Slot
     {
-        std::unique_ptr<juce::AudioPluginInstance> instance;
+        std::unique_ptr<juce::AudioPluginInstance> instance;  // null while hibernated
         std::string uid;
+        std::string name;
         std::atomic<bool> bypassed { false };
         bool prepared = false;  // message thread only
         std::map<int, smix::ValueMapper> mappers;  // learned display-text curves, per parameter index
+
+        // Hibernation: the plugin is unloaded, its full state waits in the memopro runtime.
+        bool hibernated = false;
+        bool hibernatedForSilence = false;
+        smix::mem::BufferId stateBuffer = smix::mem::kNoBuffer;
+        juce::PluginDescription description;
+        std::vector<smix::ParamInfo> cachedParams;  // last known parameters (shown while asleep)
+        double bypassedSince = 0.0;
+        bool protectedSlot = false;  // the user forbids the AI to change this plugin
     };
     using SlotList = std::vector<std::unique_ptr<Slot>>;
 
@@ -42,6 +54,11 @@ public:
     */
     SlotList rebuild (std::vector<Entry> entries);
     void moveSlot (int from, int to);
+
+    /** Takes a plugin out of the running chain (hibernation); destroy it on the message thread. */
+    std::unique_ptr<juce::AudioPluginInstance> takeInstance (int slot);
+    /** Puts a (re-created) plugin back; it is prepared first. */
+    void putInstance (int slot, std::unique_ptr<juce::AudioPluginInstance>);
 
     int size() const noexcept { return static_cast<int> (slots.size()); }
     Slot* slot (int index) const noexcept;

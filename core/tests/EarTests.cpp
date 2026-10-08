@@ -16,7 +16,7 @@ std::vector<float> kickLike (double sr, double seconds)
     for (size_t i = 0; i < x.size(); ++i)
     {
         const double t = std::fmod (i / sr, 0.5);
-        x[i] = static_cast<float> (0.8 * std::exp (-t * 12) * std::sin (2 * M_PI * 55 * t));
+        x[i] = static_cast<float> (0.8 * std::exp (-t * 12) * std::sin (2 * 3.14159265358979323846 * 55 * t));
     }
     return x;
 }

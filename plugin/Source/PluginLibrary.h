@@ -30,15 +30,13 @@ public:
 
     std::optional<juce::PluginDescription> descriptionFor (const std::string& uid) const;
 
-    // Settings shared by all instances
-    juce::String getApiKey() const;   // ANTHROPIC_API_KEY env var wins over the stored key
-    void setApiKey (const juce::String&);
-    juce::String getModel() const;
-    void setModel (const juce::String&);
-    juce::String getEffort() const;
-    void setEffort (const juce::String&);
+    // Settings shared by all instances (stored locally, never sent anywhere)
+    juce::String getSetting (const juce::String& key, const juce::String& fallback = {}) const;
+    void setSetting (const juce::String& key, const juce::String& value);
 
     static juce::File dataDirectory();
+    static juce::File knownPluginsFile() { return dataDirectory().getChildFile ("known-plugins.xml"); }
+    static juce::File modelsDirectory();
 
 private:
     class ScanThread;

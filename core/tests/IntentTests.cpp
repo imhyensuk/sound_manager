@@ -87,6 +87,15 @@ TEST_CASE ("negation and problem words")
     CHECK_FALSE ((hasGoal (i, SoundGoal::LessMuddy)));
 }
 
+TEST_CASE ("a track instance with an unknown name applies requests to itself")
+{
+    auto session = test::makeSession();
+    session.upsert (test::makeChannel ("u", "Audio 1", InstrumentRole::Unknown));
+    LocalIntentInterpreter li;
+    const auto i = li.parse ("make the kick tighter", session, "u");
+    CHECK (i.targetChannelIds == std::vector<std::string> { "u" });
+}
+
 TEST_CASE ("drum-bus instance cannot be steered onto the vocal")
 {
     const auto session = test::makeSession();

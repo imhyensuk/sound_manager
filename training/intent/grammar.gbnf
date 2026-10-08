@@ -1,0 +1,11 @@
+root ::= "{" ws "\"reply\":" ws string "," ws "\"targets\":" ws strings "," ws "\"goals\":" ws goals "," ws "\"question\":" ws string "," ws "\"options\":" ws strings "," ws "\"view\":" ws view "," ws "\"command\":" ws command ws "}"
+goals ::= "[" ws ( goal ( "," ws goal ){0,5} )? ws "]"
+goal ::= "{" ws "\"goal\":" ws goalname "," ws "\"amount\":" ws amount ws "}"
+goalname ::= "\"tighter\"" | "\"punchier\"" | "\"more_attack\"" | "\"warmer\"" | "\"brighter\"" | "\"darker\"" | "\"less_muddy\"" | "\"less_harsh\"" | "\"less_boomy\"" | "\"more_body\"" | "\"thinner\"" | "\"more_air\"" | "\"less_sibilance\"" | "\"more_controlled\"" | "\"more_dynamic\"" | "\"wider\"" | "\"narrower\"" | "\"more_space\"" | "\"drier\"" | "\"louder\"" | "\"quieter\"" | "\"forward\"" | "\"back\"" | "\"smoother\""
+amount ::= "0.5" | "1.0" | "1.5"
+view ::= "\"\"" | "\"rta\"" | "\"waterfall\"" | "\"meters\"" | "\"loudness\"" | "\"correlation\""
+command ::= "\"\"" | "\"undo\"" | "\"automix_start\"" | "\"automix_stop\"" | "\"match_reference\"" | "\"plan_chain\"" | "\"feedback_ok\"" | "\"feedback_more\"" | "\"feedback_less\"" | "\"status\""
+strings ::= "[" ws ( string ( "," ws string ){0,7} )? ws "]"
+string ::= "\"" char{0,160} "\""
+char ::= [^"\\\x7F\x00-\x1F] | "\\" ["\\/bfnrt]
+ws ::= [ \t\n]{0,2}

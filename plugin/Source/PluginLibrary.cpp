@@ -63,7 +63,7 @@ PluginLibrary::PluginLibrary()
     options.osxLibrarySubFolder = "Application Support";
     settings = std::make_unique<juce::PropertiesFile> (options);
 
-    if (auto xml = juce::parseXML (dataDirectory().getChildFile ("known-plugins.xml")))
+    if (auto xml = juce::parseXML (knownPluginsFile()))
         knownPlugins.recreateFromXml (*xml);
 
     std::ifstream in (dataDirectory().getChildFile ("catalog.json").getFullPathName().toStdString());
@@ -125,7 +125,7 @@ void PluginLibrary::syncCatalogFromKnownList()
     }
 
     if (auto xml = knownPlugins.createXml())
-        xml->writeTo (dataDirectory().getChildFile ("known-plugins.xml"));
+        xml->writeTo (knownPluginsFile());
     saveCatalog();
     sendChangeMessage();
 }
@@ -160,14 +160,20 @@ std::optional<juce::PluginDescription> PluginLibrary::descriptionFor (const std:
     return std::nullopt;
 }
 
-juce::String PluginLibrary::getApiKey() const
+juce::String PluginLibrary::getSetting (const juce::String& key, const juce::String& fallback) const
 {
-    const auto env = juce::SystemStats::getEnvironmentVariable ("ANTHROPIC_API_KEY", {});
-    return env.isNotEmpty() ? env : settings->getValue ("apiKey");
+    return settings->getValue (key, fallback);
 }
 
-void PluginLibrary::setApiKey (const juce::String& key)   { settings->setValue ("apiKey", key); settings->saveIfNeeded(); }
-juce::String PluginLibrary::getModel() const              { return settings->getValue ("model", "claude-opus-5-5"); }
-void PluginLibrary::setModel (const juce::String& m)      { settings->setValue ("model", m); settings->saveIfNeeded(); }
-juce::String PluginLibrary::getEffort() const             { return settings->getValue ("effort", "medium"); }
-void PluginLibrary::setEffort (const juce::String& e)     { settings->setValue ("effort", e); settings->saveIfNeeded(); }
+void PluginLibrary::setSetting (const juce::String& key, const juce::String& value)
+{
+    settings->setValue (key, value);
+    settings->saveIfNeeded();
+}
+
+juce::File PluginLibrary::modelsDirectory()
+{
+    auto dir = dataDirectory().getChildFile ("models");
+    dir.createDirectory();
+    return dir;
+}

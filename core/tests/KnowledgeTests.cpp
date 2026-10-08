@@ -31,7 +31,7 @@ struct FakeEq : ProbeTarget
     void process (float* l, float* r, int n) override
     {
         const double f = 100 * std::pow (100.0, freq), g = -15 + 30 * gain;
-        const double A = std::pow (10.0, g / 40), w = 2 * M_PI * f / 48000.0, alpha = std::sin (w) / 2.0, c = std::cos (w), a0 = 1 + alpha / A;
+        const double A = std::pow (10.0, g / 40), w = 2 * 3.14159265358979323846 * f / 48000.0, alpha = std::sin (w) / 2.0, c = std::cos (w), a0 = 1 + alpha / A;
         const double b0 = (1 + alpha * A) / a0, b1 = -2 * c / a0, b2 = (1 - alpha * A) / a0, a1 = -2 * c / a0, a2 = (1 - alpha / A) / a0;
         float* ch[2] = { l, r };
         for (int k = 0; k < 2; ++k)

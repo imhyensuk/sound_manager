@@ -71,6 +71,8 @@ public:
     MixAssistant (std::string scopeRootId, llm::IntentModel& rules);
 
     void setReasoningModel (llm::IntentModel* model) { reasoning = model; }
+    void setRootId (std::string id) { rootId = std::move (id); }
+    const std::string& getRootId() const noexcept { return rootId; }
     Options& options() noexcept { return opts; }
     dialogue::DialogueManager& dialogue() noexcept { return questions; }
 

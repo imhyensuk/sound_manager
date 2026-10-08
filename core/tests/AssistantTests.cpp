@@ -169,6 +169,12 @@ TEST_CASE ("asks for the name of a channel it cannot identify")
     CHECK (host.renamed["x"] == "오버헤드 마이크야");
     CHECK ((host.s.find ("x")->role == InstrumentRole::Overheads));
 
+    // A request typed while the name question is open is a request, not a name.
+    host.s.upsert (test::makeChannel ("y", "Audio 4", InstrumentRole::Unknown));
+    a.tick (host, 3.0);
+    a.handleUser ("make the kick tighter", host, 4.0);
+    CHECK (host.renamed.count ("y") == 0);
+
     CHECK (MixAssistant::isUninformativeName ("Track 12"));
     CHECK (MixAssistant::isUninformativeName ("오디오 4"));
     CHECK_FALSE (MixAssistant::isUninformativeName ("Kick In"));

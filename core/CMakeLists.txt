@@ -47,8 +47,15 @@ else()
     target_compile_definitions(smix_llm PRIVATE SMIX_HAVE_LLAMA=0)
 endif()
 
+# Offline tools for training and evaluating the models (training/README.md)
 add_executable(smix_ear_features tools/smix_ear_features.cpp)
 target_link_libraries(smix_ear_features PRIVATE smix_core)
+add_executable(smix_ear_classify tools/smix_ear_classify.cpp)
+target_link_libraries(smix_ear_classify PRIVATE smix_core)
+add_executable(smix_export_prompts tools/smix_export_prompts.cpp)
+target_link_libraries(smix_export_prompts PRIVATE smix_core)
+add_executable(smix_intent_eval tools/smix_intent_eval.cpp)
+target_link_libraries(smix_intent_eval PRIVATE smix_llm)
 
 if(SMIX_BUILD_TESTS)
     add_executable(smix_core_tests
@@ -65,7 +72,8 @@ if(SMIX_BUILD_TESTS)
         tests/EarTests.cpp
         tests/LlmTests.cpp)
     target_link_libraries(smix_core_tests PRIVATE smix_core smix_llm doctest::doctest)
-    target_compile_definitions(smix_core_tests PRIVATE SMIX_TEST_TINY_LLM="${CMAKE_BINARY_DIR}/tiny-llm.gguf")
+    target_compile_definitions(smix_core_tests PRIVATE SMIX_TEST_TINY_LLM="${CMAKE_BINARY_DIR}/tiny-llm.gguf"
+                                                       SMIX_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
     add_test(NAME smix_core_tests COMMAND smix_core_tests)
 
     # Tiny random-weight GGUF (Qwen2 tokenizer) for the LLM test; needs Python + numpy.

@@ -5,19 +5,21 @@
 #include <smix/AutoMixer.h>
 #include <smix/MixSession.h>
 
-#include "AgentWorker.h"
+#include "Engine.h"
 #include "HostedChain.h"
 #include "PluginLibrary.h"
 #include "PluginWindow.h"
 #include "SessionHub.h"
+
+class AssistantWorker;
 
 /**
     One Sound Manager instance = one mixer channel.
 
     Signal flow:  input -> [user's plugins, AI-ordered] -> AI gain stage -> analyser ("ears") -> output
 
-    Instances find each other through the SessionHub, so a bus/master instance can mix
-    every channel routed into it (scope rules in smix::MixSession).
+    Instances are light: the heavy parts (language model, knowledge base, ear model, memory
+    runtime) live once per process in the shared Engine and are loaded only when needed.
 */
 class SoundManagerProcessor : public juce::AudioProcessor,
                               public juce::ChangeBroadcaster
@@ -54,49 +56,70 @@ public:
     void updateTrackProperties (const TrackProperties&) override;
 
     //==============================================================================
-    // Identity & routing (message thread)
+    // Identity, routing, user choices (message thread)
     const std::string& getInstanceId() const noexcept { return instanceId; }
     void regenerateInstanceId() { instanceId = juce::Uuid().toString().substring (0, 8).toStdString(); }
     juce::String getDisplayName() const;
+    juce::String getUserLabel() const { return userLabel; }
+    void setUserLabel (const juce::String& l) { userLabel = l; sendChangeMessage(); }
     smix::ChannelKind getEffectiveKind() const;
     smix::InstrumentRole getEffectiveRole() const;
 
-    /** "" or "auto" = guess (drum tracks -> the drum bus instance, otherwise master). */
     juce::String getParentSetting() const { return parentSetting; }
     void setParentSetting (const juce::String& id) { parentSetting = id; }
-    void setUserLabel (const juce::String& l) { userLabel = l; }
+    juce::String getStyle() const { return style; }
+    void setStyle (const juce::String& s) { style = s; sendChangeMessage(); }
+    juce::String getReferenceName() const { return referenceName; }
+    void setReferenceName (const juce::String& n) { referenceName = n; sendChangeMessage(); }
 
     bool isAutoMixEnabled() const;
+    void setAutoMixEnabled (bool);
     bool isGainLocked() const;
+    bool isChannelProtected() const;
+    void setChannelProtected (bool);
 
     //==============================================================================
-    // Called by the SessionHub / UI on the message thread
+    // Called by the SessionHub / assistant / UI on the message thread
     smix::ChannelState buildChannelState (bool learnMissingMaps);
 
     bool setHostedParameter (int slot, int paramIndex, float normalised);
     bool setAiGainDb (float db);
     bool setSlotBypass (int slot, bool bypassed);
+    bool setSlotProtected (int slot, bool isProtected);
     bool moveSlot (int from, int to);
+    std::vector<std::uint8_t> captureSlotState (int slot);
 
-    /** Loads plugins (async) and replaces the chain. Plugins already in the chain keep their state. */
-    void loadChain (const std::vector<std::string>& uids,
-                    std::vector<juce::MemoryBlock> states = {},    // per position, for restoring a session
-                    std::vector<bool> bypassStates = {});
+    void loadChain (const std::vector<std::string>& uids, std::vector<juce::MemoryBlock> states = {}, std::vector<bool> bypassStates = {},
+                    std::vector<bool> protectStates = {});
     bool isLoadingChain() const noexcept { return pendingLoads > 0; }
 
-    /** Opens the hosted plugin's own editor in a floating window. */
+    /** Hibernation (memory): unload a hosted plugin, keeping its state in the memopro runtime. */
+    bool hibernateSlot (int slot, bool forSilence);
+    bool wakeSlot (int slot);
+    void hibernationTick (double now, bool aggressive);
+    double secondsSinceSignal() const;
+
+    /** Instrument recognition for the naming question: records 3 s, then the ear model listens. */
+    void startEarCapture();
+    std::vector<std::string> nameSuggestions();  // empty until a capture was classified
+
     void showHostedEditor (int slot);
 
+    /** The assistant asks the UI to show an analysis view ("rta", "waterfall", ...). */
+    void requestView (const juce::String& v) { requestedView = v; sendChangeMessage(); }
+    juce::String consumeRequestedView() { auto v = requestedView; requestedView.clear(); return v; }
+
     HostedChain& getChain() noexcept { return chain; }
+    smix::AudioAnalyzer& getAnalyzer() noexcept { return analyzer; }
     smix::AutoMixer& getAutoMixer() noexcept { return autoMixer; }
     PluginLibrary& getLibrary() noexcept { return *library; }
+    Engine& getEngine() noexcept { return *engine; }
     SessionHub& getHub() noexcept { return *hub; }
-    AgentWorker& getAgent() noexcept { return agent; }
+    AssistantWorker& getAssistant() noexcept { return *assistant; }
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
 
-    // Chat & activity log (message thread)
     struct LogEntry { juce::String who, text; };
-    const std::vector<LogEntry>& getLog() const noexcept { return log; }
+    std::vector<LogEntry> getLog() const;
     void addLog (const juce::String& who, const juce::String& text);
 
     static juce::StringArray kindChoices();
@@ -104,33 +127,40 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
+    void closeWindowsFor (const juce::AudioProcessor*);
+    void advanceRamps();
+    void updateLatency();
 
     juce::SharedResourcePointer<PluginLibrary> library;
+    juce::SharedResourcePointer<Engine> engine;
     juce::SharedResourcePointer<SessionHub> hub;
 
     juce::AudioProcessorValueTreeState parameters;
     std::atomic<float>* aiGainParam = nullptr;
 
     std::string instanceId;
-    juce::String trackName, userLabel, parentSetting { "auto" };
+    juce::String trackName, userLabel, parentSetting { "auto" }, style, referenceName, requestedView;
 
     HostedChain chain;
     smix::AudioAnalyzer analyzer;
     smix::AudioFeatures latestFeatures;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> gainSmoothed;
+    std::atomic<juce::uint32> lastSignalMs { 0 };
+
+    // Ear capture (allocated only while recognising the instrument)
+    std::unique_ptr<float[]> earBuffer;
+    std::atomic<int> earWritePos { 0 };
+    std::atomic<bool> earCapturing { false };
+    int earLength = 0;
+    std::vector<std::string> earSuggestions;
 
     smix::AutoMixer autoMixer;
-    AgentWorker agent;
-
-    std::vector<std::unique_ptr<PluginWindow>> pluginWindows;
-    void closeWindowsFor (const juce::AudioProcessor*);
+    std::unique_ptr<AssistantWorker> assistant;
 
     std::vector<LogEntry> log;
-    juce::CriticalSection logLock;  // getStateInformation may run on a non-message thread
+    mutable juce::CriticalSection logLock;
     int pendingLoads = 0;
     int loadGeneration = 0;
-
-    // While a restored session is still loading its plugins, saving must return the original state.
     juce::MemoryBlock pendingRestoreState;
     int restoreGeneration = -1;
     double currentSampleRate = 44100.0;
@@ -140,7 +170,7 @@ private:
     class RampTimer;
     std::vector<Ramp> ramps;
     std::unique_ptr<RampTimer> rampTimer;
-    void advanceRamps();
+    std::vector<std::unique_ptr<PluginWindow>> pluginWindows;
 
     JUCE_DECLARE_WEAK_REFERENCEABLE (SoundManagerProcessor)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SoundManagerProcessor)

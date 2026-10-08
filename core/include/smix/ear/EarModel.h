@@ -38,7 +38,7 @@ struct EarFeatures
 class EarModel
 {
 public:
-    explicit EarModel (mem::Runtime* runtime = nullptr) : runtime (runtime) {}
+    explicit EarModel (mem::Runtime* r = nullptr) : runtime (r) {}
     ~EarModel();
 
     bool load (const std::string& path, std::string& error);

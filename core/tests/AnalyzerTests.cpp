@@ -24,7 +24,7 @@ AudioFeatures runSine (double freq, double amplitude, double seconds, double sr 
         for (int i = 0; i < 512; ++i)
         {
             l[static_cast<size_t> (i)] = r[static_cast<size_t> (i)] = static_cast<float> (amplitude * std::sin (phase));
-            phase += 2.0 * M_PI * freq / sr;
+            phase += 2.0 * 3.14159265358979323846 * freq / sr;
         }
         a.process (l.data(), r.data(), 512);
     }

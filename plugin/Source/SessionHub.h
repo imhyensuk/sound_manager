@@ -1,21 +1,23 @@
 #pragma once
 
 #include <juce_events/juce_events.h>
+#include <juce_core/juce_core.h>
 #include <smix/ChainPlanner.h>
 #include <smix/MixAction.h>
+#include <smix/MixHistory.h>
 #include <smix/MixSession.h>
+
+#include "Engine.h"
 
 class SoundManagerProcessor;
 
 /**
     Links every Sound Manager instance living in this DAW process (shared via
-    juce::SharedResourcePointer). It turns them into one smix::MixSession, routes
-    actions to the instance that owns a channel and runs the auto-mix loop.
+    juce::SharedResourcePointer): one MixSession, routing of actions to the instance that owns a
+    channel, the mix history, the auto-mix loop and plugin hibernation.
 
-    Note: hosts that sandbox each plugin in its own process (e.g. Bitwig's per-plugin
-    mode) give every instance its own hub; see docs/ARCHITECTURE.md for the IPC plan.
-
-    Message thread only.
+    Hosts that sandbox each plugin in its own process give every instance its own hub;
+    see docs/ARCHITECTURE.md. Message thread only.
 */
 class SessionHub : public juce::ChangeBroadcaster,
                    private juce::Timer
@@ -31,23 +33,26 @@ public:
     SoundManagerProcessor* findInstance (const std::string& id) const;
     const std::vector<SoundManagerProcessor*>& getInstances() const noexcept { return instances; }
 
-    /** Rebuilds the session model from all instances. */
     void refresh();
     const smix::MixSession& getSession() const noexcept { return session; }
 
     /**
-        Validated execution of actions on behalf of the instance rootId (its scope applies).
-        Use this for user-initiated changes (chat, buttons): touched channels are protected from
-        auto-mix tone corrections and freshly inserted plugins get starting settings.
+        Validated execution on behalf of the instance rootId, recorded in the history as `label`.
+        User-driven changes protect the touched channels from auto-mix tone corrections and give
+        freshly inserted plugins starting settings.
     */
-    std::vector<smix::ActionOutcome> apply (const std::vector<smix::MixAction>&, const std::string& rootId);
+    std::vector<smix::ActionOutcome> apply (const std::vector<smix::MixAction>&, const std::string& rootId,
+                                            const std::string& label = "변경", const std::string& source = "chat");
+
+    smix::MixHistory& history() noexcept { return mixHistory; }
+
+    /** Back to a recorded state (requirement 11). */
+    bool restore (std::int64_t snapshotId, const std::string& rootId, juce::String* report = nullptr);
+    /** Back to the state before the latest recorded change in this scope. */
+    bool undo (const std::string& rootId, juce::String* report = nullptr);
 
     smix::ChainPlan planChainFor (const std::string& channelId);
-
-    /** Bus/master instances a channel can be routed to (for the routing menu). */
     std::vector<SoundManagerProcessor*> possibleParents (const SoundManagerProcessor&) const;
-
-    /** True if an ancestor of this channel is auto-mixing it already. */
     bool isAutoMixedByAncestor (const std::string& channelId) const;
 
 private:
@@ -55,9 +60,14 @@ private:
     void timerCallback() override;
     std::string resolveParent (const SoundManagerProcessor&) const;
     void runAutoMix();
+    void recordSnapshot (const std::string& rootId, const std::string& label, const std::string& source);
+    Engine& engine() { return *enginePtr; }
 
+    juce::SharedResourcePointer<Engine> enginePtr;
     std::vector<SoundManagerProcessor*> instances;
     smix::MixSession session;
     std::unique_ptr<Controller> controller;
+    smix::MixHistory mixHistory;
+    std::map<std::string, double> lastAutoSnapshot;
     int tickCount = 0;
 };

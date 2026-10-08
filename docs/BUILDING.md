@@ -2,12 +2,14 @@
 
 ## 준비물
 
-| OS | 필요 |
+| | 필요 |
 |---|---|
-| 공통 | CMake ≥ 3.22, C++17 컴파일러, 인터넷(첫 configure 시 JUCE 8.0.4 / nlohmann_json / doctest 자동 다운로드) |
-| macOS | Xcode 15+ (AU·VST3·Standalone) |
-| Windows | Visual Studio 2022 (VST3·Standalone, `/utf-8`는 CMake가 자동 지정) |
-| Linux | `libasound2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxrandr-dev libxcursor-dev libxinerama-dev libxext-dev libcurl4-openssl-dev libgl1-mesa-dev` |
+| 공통 | CMake ≥ 3.22, C++17 컴파일러. 첫 configure 때 JUCE 8.0.4, llama.cpp b11121, memopro, nlohmann_json, doctest를 받습니다(빌드할 때만 인터넷 사용, 플러그인은 오프라인). |
+| memopro | Rust 1.85 이상(`cargo`). 없으면 대체 할당기로 자동 전환됩니다. |
+| 테스트 | Python 3 + numpy, pyyaml (테스트용 초소형 GGUF 생성) |
+| macOS | Xcode 15+ (AU·VST3·Standalone; Metal 가속은 `-DGGML_METAL=ON`이 기본) |
+| Windows | Visual Studio 2022 (VST3·Standalone). memopro는 아직 Windows를 지원하지 않아 대체 할당기를 씁니다. |
+| Linux | `libasound2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxrandr-dev libxcursor-dev libxinerama-dev libxext-dev libgl1-mesa-dev` |
 
 ## 빌드
 
@@ -17,16 +19,18 @@ cmake --build build --config Release --parallel
 ctest --test-dir build -C Release
 ```
 
-옵션:
-
 | 옵션 | 기본 | 설명 |
 |---|---|---|
-| `SMIX_BUILD_PLUGIN` | ON | JUCE 플러그인 빌드. OFF면 코어 엔진과 테스트만 빌드 |
-| `SMIX_BUILD_TESTS` | ON | 코어 단위 테스트(doctest) |
-| `SMIX_BUILD_INTEGRATION_TEST` | OFF | 테스트용 VST3 EQ/컴프를 빌드해 실제 호스팅·채팅·저장·자동 믹스 검증 (Linux에서는 `xvfb-run` 필요) |
-| `SMIX_AAX_SDK_PATH` | (없음) | Avid AAX SDK 경로를 주면 AAX 포맷 추가 |
+| `SMIX_BUILD_PLUGIN` | ON | JUCE 플러그인과 프로파일러 헬퍼 |
+| `SMIX_BUILD_TESTS` | ON | 코어 단위 테스트 |
+| `SMIX_WITH_MEMOPRO` | ON | memopro 메모리 런타임 (`SMIX_MEMOPRO_SOURCE_DIR`로 로컬 체크아웃 지정 가능) |
+| `SMIX_WITH_LLAMA` | ON | 로컬 언어 모델(llama.cpp, 네트워크 기능 없이 빌드) |
+| `SMIX_BUILD_INTEGRATION_TEST` | OFF | 테스트용 VST3로 실제 호스팅 전 과정 검증 (Linux는 `xvfb-run`) |
+| `SMIX_AAX_SDK_PATH` | (없음) | AAX(Pro Tools) 빌드 |
 
-## 설치 위치
+## 설치
+
+플러그인 번들을 통째로 복사합니다. 번들 안의 `SoundManagerProfiler`가 플러그인 분석에 필요합니다.
 
 | 포맷 | macOS | Windows | Linux |
 |---|---|---|---|
@@ -35,18 +39,18 @@ ctest --test-dir build -C Release
 | AAX | `/Library/Application Support/Avid/Audio/Plug-Ins` | `C:\Program Files\Common Files\Avid\Audio\Plug-Ins` | – |
 | LV2 | – | – | `~/.lv2` |
 
-DAW별 참고:
-- **Logic Pro**: AU를 사용합니다. 설치 후 Plug-in Manager에서 재검사하세요. AU 안에서 다른 AU를 호스팅하므로 플러그인 탭에서 한 번 스캔해야 합니다.
-- **Pro Tools**: AAX 서명(PACE iLok)이 없으면 개발용 Pro Tools Developer 빌드에서만 로드됩니다.
-- **FL Studio / Ableton / Cubase / Audacity**: VST3를 사용합니다. Audacity 3.2 이상은 VST3 실시간 이펙트를 지원합니다.
+## 데이터 위치
+
+`SoundManagerAI` 폴더(macOS `~/Library/Application Support`, Windows `%APPDATA%`, Linux `~/.config`)에 다음이 들어갑니다.
+
+- `models/`
+  - `*.gguf`: 로컬 언어 모델. 첫 번째 파일이 쓰이며, 설정 탭에서 다른 파일을 지정할 수 있습니다.
+  - `ear.smxear`: 악기 인식 모델
+- `known-plugins.xml`, `catalog.json`: 스캔 결과, 허용 목록, 종류 수정
+- `knowledge.jsonl`: 플러그인 지식
+- `references.json`: 분석된 레퍼런스
+- `SoundManagerAI.settings`: 모델 경로, 메모리 상한, 모듈 on/off
 
 ## CI
 
-`.github/workflows/build.yml`이 Linux, macOS, Windows에서 빌드하고 테스트를 돌린 뒤 플러그인 바이너리를 아티팩트로 올립니다.
-
-## 데이터 위치
-
-`SoundManagerAI` 폴더(macOS `~/Library/Application Support`, Windows `%APPDATA%`, Linux `~/.config`)에 다음 파일이 저장됩니다.
-- `known-plugins.xml`: 스캔 결과
-- `catalog.json`: 허용 목록, 종류 수정, 우선순위
-- `SoundManagerAI.settings`: API 키(평문), 모델, effort
+`.github/workflows/build.yml`이 Linux, macOS, Windows에서 Rust 툴체인과 함께 빌드하고 코어 테스트(초소형 GGUF 포함)를 돌립니다. Linux에서는 호스팅 통합 테스트도 돌린 뒤 플러그인을 아티팩트로 올립니다.

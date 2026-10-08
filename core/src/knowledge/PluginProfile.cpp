@@ -278,11 +278,11 @@ PluginProfiler::Measurement PluginProfiler::measure (ProbeTarget& t, const Profi
         const double rms = std::sqrt (sq / static_cast<double> (n - skip));
         m.crestDb = static_cast<float> (20.0 * std::log10 (std::max (peak, 1.0e-7) / std::max (rms, 1.0e-9)));
     }
-    // Impulse: energy that arrives later than 50 ms (reverb/delay).
+    // Impulse: energy that arrives later than 150 ms (reverb/delay tails; filter ringing has died out).
     {
         auto l = s.impulse, r = s.impulse;
         run (l, r);
-        const size_t start = static_cast<size_t> (sr * 0.01) + static_cast<size_t> (t.latencySamples()) + static_cast<size_t> (sr * 0.05);
+        const size_t start = static_cast<size_t> (sr * 0.01) + static_cast<size_t> (t.latencySamples()) + static_cast<size_t> (sr * 0.15);
         double tail = 0;
         for (size_t i = start; i < n; ++i)
             tail += static_cast<double> (l[i]) * l[i] + static_cast<double> (r[i]) * r[i];
@@ -403,7 +403,10 @@ PluginProfile PluginProfiler::profile (ProbeTarget& t, const PluginInfo& info, c
         p.effects.push_back (e);
 
         maxEqSpread = std::max (maxEqSpread, spread);
-        maxCompression = std::max (maxCompression, std::abs (e.crestDeltaDb));
+        // Dynamics evidence only from parameters that leave the tonal balance alone (an EQ boost
+        // on the drum stimulus also changes its crest factor).
+        if (spread < 2.0f)
+            maxCompression = std::max (maxCompression, std::abs (e.crestDeltaDb));
         maxWidth = std::max (maxWidth, std::abs (e.widthDelta));
         maxTail = std::max ({ maxTail, hi.tailDb, lo.tailDb });
         maxDistortion = std::max ({ maxDistortion, hi.distortion, lo.distortion });
@@ -414,14 +417,14 @@ PluginProfile PluginProfiler::profile (ProbeTarget& t, const PluginInfo& info, c
 
     // What the plugin really is, judged from its behaviour.
     const float dryTail = -120.0f;
-    if (maxTail - dryTail > 60.0f && maxTail > -45.0f)
+    if (maxTail - dryTail > 60.0f && maxTail > -40.0f)
         p.measuredCategory = info.category == PluginCategory::Delay ? PluginCategory::Delay : PluginCategory::Reverb;
-    else if (maxCompression > 1.5f)
-        p.measuredCategory = info.category == PluginCategory::Limiter ? PluginCategory::Limiter : PluginCategory::Compressor;
     else if (maxDistortion > 0.05f)
         p.measuredCategory = PluginCategory::Saturation;
-    else if (maxEqSpread > 2.0f)
+    else if (maxEqSpread > 3.0f)
         p.measuredCategory = PluginCategory::EQ;
+    else if (maxCompression > 1.5f)
+        p.measuredCategory = info.category == PluginCategory::Limiter ? PluginCategory::Limiter : PluginCategory::Compressor;
     else if (maxWidth > 0.1f)
         p.measuredCategory = PluginCategory::StereoImager;
 

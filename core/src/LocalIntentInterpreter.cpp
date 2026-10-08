@@ -178,9 +178,12 @@ ParsedIntent LocalIntentInterpreter::parse (const std::string& rawText, const Mi
     // channel itself; on a bus/master it is ambiguous (the caller asks which channel is meant).
     const auto* root = session.find (rootId);
     const bool rootIsTrack = root != nullptr && root->kind == ChannelKind::Track;
+    // A track instance only mixes itself: an instrument it cannot match (its own name is unknown
+    // or generic) still means this channel.
     if (intent.targetChannelIds.empty()
-        && ((! intent.mentionedRoles.empty() && intent.mentionedRoles.front() == InstrumentRole::Master)
-            || (intent.mentionedRoles.empty() && (rootIsTrack || containsAny (text, { "전체", "믹스", "whole", "mix", "everything" })))))
+        && (rootIsTrack
+            || (! intent.mentionedRoles.empty() && intent.mentionedRoles.front() == InstrumentRole::Master)
+            || (intent.mentionedRoles.empty() && containsAny (text, { "전체", "믹스", "whole", "mix", "everything" }))))
         intent.targetChannelIds.push_back (rootId);
 
     // --- goals --------------------------------------------------------------------

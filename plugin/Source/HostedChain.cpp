@@ -18,6 +18,8 @@ void HostedChain::prepare (double newSampleRate, int maximumBlockSize)
     const juce::SpinLock::ScopedLockType sl (lock);
     for (auto& s : slots)
     {
+        if (s->instance == nullptr)
+            continue;
         prepareInstance (*s->instance);
         s->prepared = true;
     }
@@ -27,7 +29,8 @@ void HostedChain::release()
 {
     const juce::SpinLock::ScopedLockType sl (lock);
     for (auto& s : slots)
-        s->instance->releaseResources();
+        if (s->instance != nullptr)
+            s->instance->releaseResources();
 }
 
 void HostedChain::process (juce::AudioBuffer<float>& buffer) noexcept
@@ -41,6 +44,8 @@ void HostedChain::process (juce::AudioBuffer<float>& buffer) noexcept
 
     for (auto& s : slots)
     {
+        if (s->instance == nullptr)
+            continue;  // hibernated: passes audio through (it was bypassed or the channel was silent)
         auto& p = *s->instance;
         const int needed = juce::jmax (p.getTotalNumInputChannels(), p.getTotalNumOutputChannels());
         if (needed == 0)
@@ -77,7 +82,7 @@ HostedChain::SlotList HostedChain::rebuild (std::vector<Entry> entries)
     // Only fresh instances: re-used ones are still running in the current chain.
     for (auto& e : entries)
     {
-        if (e.fresh != nullptr && ! e.fresh->prepared)
+        if (e.fresh != nullptr && e.fresh->instance != nullptr && ! e.fresh->prepared)
         {
             prepareInstance (*e.fresh->instance);
             e.fresh->prepared = true;
@@ -129,13 +134,41 @@ int HostedChain::getLatencySamples() const
 {
     int total = 0;
     for (auto& s : slots)
-        total += s->instance->getLatencySamples();
+        if (s->instance != nullptr)
+            total += s->instance->getLatencySamples();
     return total;
+}
+
+std::unique_ptr<juce::AudioPluginInstance> HostedChain::takeInstance (int index)
+{
+    std::unique_ptr<juce::AudioPluginInstance> out;
+    const juce::SpinLock::ScopedLockType sl (lock);
+    if (auto* s = slot (index))
+    {
+        out = std::move (s->instance);
+        s->prepared = false;
+    }
+    return out;
+}
+
+void HostedChain::putInstance (int index, std::unique_ptr<juce::AudioPluginInstance> instance)
+{
+    if (instance == nullptr)
+        return;
+    prepareInstance (*instance);
+    const juce::SpinLock::ScopedLockType sl (lock);
+    if (auto* s = slot (index))
+    {
+        s->instance = std::move (instance);
+        s->prepared = true;
+    }
 }
 
 void HostedChain::learnValueMaps (Slot& s)
 {
     s.mappers.clear();
+    if (s.instance == nullptr)
+        return;
     const auto points = smix::ValueMapper::probePoints (33);
     const auto& params = s.instance->getParameters();
     const int limit = juce::jmin (params.size(), 256);  // some plugins expose thousands of (MIDI CC) parameters

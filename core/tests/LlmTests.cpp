@@ -26,6 +26,16 @@ TEST_CASE ("model JSON is turned into targets and goals; grammar text is well fo
     CHECK (intentUserPrompt (r).find ("Kick In") != std::string::npos);
 }
 
+TEST_CASE ("the training data uses exactly the plugin's prompt and grammar")
+{
+    auto slurp = [] (const std::string& path) {
+        std::ifstream f (path);
+        return std::string ((std::istreambuf_iterator<char> (f)), std::istreambuf_iterator<char>());
+    };
+    CHECK (slurp (SMIX_SOURCE_DIR "/training/intent/system_prompt.txt") == intentSystemPrompt());
+    CHECK (slurp (SMIX_SOURCE_DIR "/training/intent/grammar.gbnf") == intentGrammar());
+}
+
 TEST_CASE ("local LLM (llama.cpp): load, grammar-constrained JSON, prompt cache, memopro state across unload")
 {
     if (! LocalLlm::compiledIn())

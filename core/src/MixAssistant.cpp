@@ -159,8 +159,9 @@ std::vector<MixAssistant::Message> MixAssistant::handleUser (const std::string& 
         }
     }
 
-    // A typed answer to an open question (e.g. the channel name, or "2").
-    if (! result.understood && result.view.empty() && result.command.empty())
+    // A typed answer to an open question (e.g. the channel name, or "2"). Text that asks for a
+    // sound ("make the kick tighter") is a new request, never an answer such as a name.
+    if (! result.understood && result.view.empty() && result.command.empty() && result.goals.empty())
         if (auto qa = questions.answerFromText (text))
             return resolveAnswer (qa->first, qa->second, host, now);
 

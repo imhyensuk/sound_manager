@@ -1,5 +1,6 @@
 #include "SessionHub.h"
 
+#include "Engine.h"
 #include "PluginProcessor.h"
 #include "Text.h"
 
@@ -43,7 +44,7 @@ private:
 };
 
 //==============================================================================
-SessionHub::SessionHub() : controller (std::make_unique<Controller> (*this))
+SessionHub::SessionHub() : controller (std::make_unique<Controller> (*this)), mixHistory (&enginePtr->memory(), 200)
 {
     startTimer (500);
 }
@@ -69,14 +70,11 @@ void SessionHub::remove (SoundManagerProcessor* p)
 void SessionHub::ensureUniqueId (SoundManagerProcessor& p)
 {
     for (auto* other : instances)
-    {
         if (other != &p && other->getInstanceId() == p.getInstanceId())
         {
-            // Duplicated track: give the copy a fresh identity.
-            p.regenerateInstanceId();
+            p.regenerateInstanceId();  // duplicated track: give the copy a fresh identity
             return;
         }
-    }
 }
 
 SoundManagerProcessor* SessionHub::findInstance (const std::string& id) const
@@ -100,21 +98,20 @@ std::string SessionHub::resolveParent (const SoundManagerProcessor& p) const
 {
     if (p.getEffectiveKind() == smix::ChannelKind::Master)
         return {};
-
     const auto setting = p.getParentSetting();
+    if (setting == "master")
+        return {};
     if (setting.isNotEmpty() && setting != "auto")
         return findInstance (setting.toStdString()) != nullptr ? setting.toStdString() : std::string {};
 
-    // Automatic routing guess: drums -> the (single) drum bus, vocals -> a vocal bus, otherwise master.
     const auto role = p.getEffectiveRole();
     std::vector<SoundManagerProcessor*> candidates;
     for (auto* bus : possibleParents (p))
     {
         if (bus->getEffectiveKind() != smix::ChannelKind::Bus)
             continue;
-        const auto busRole = bus->getEffectiveRole();
         const auto busName = bus->getDisplayName().toLowerCase();
-        const bool drumMatch = smix::isDrumRole (role) && role != smix::InstrumentRole::DrumBus && busRole == smix::InstrumentRole::DrumBus;
+        const bool drumMatch = smix::isDrumRole (role) && role != smix::InstrumentRole::DrumBus && bus->getEffectiveRole() == smix::InstrumentRole::DrumBus;
         const bool vocalMatch = smix::isVocalRole (role) && (busName.contains ("vox") || busName.contains ("vocal") || busName.contains (ko ("보컬")));
         if (drumMatch || vocalMatch)
             candidates.push_back (bus);
@@ -134,36 +131,119 @@ void SessionHub::refresh()
     session = std::move (fresh);
 }
 
-std::vector<smix::ActionOutcome> SessionHub::apply (const std::vector<smix::MixAction>& actions, const std::string& rootId)
+void SessionHub::recordSnapshot (const std::string& rootId, const std::string& label, const std::string& source)
+{
+    if (! engine().modules().isEnabled (smix::modules::ModuleId::History))
+        return;
+    refresh();
+    mixHistory.record (session, session.scopeOf (rootId), label, source, juce::Time::currentTimeMillis() / 1000.0,
+                       [this] (const std::string& channelId, int slot) {
+                           auto* p = findInstance (channelId);
+                           return p != nullptr ? p->captureSlotState (slot) : std::vector<std::uint8_t> {};
+                       });
+}
+
+std::vector<smix::ActionOutcome> SessionHub::apply (const std::vector<smix::MixAction>& actions, const std::string& rootId,
+                                                    const std::string& label, const std::string& source)
 {
     refresh();
     auto* root = findInstance (rootId);
-    if (root == nullptr)
+    if (root == nullptr || actions.empty())
         return {};
+
+    // The first change of a scope also records where it started from, so it can be undone.
+    bool knownStart = false;
+    for (auto& s : mixHistory.snapshots())
+        for (auto& c : s.channels)
+            knownStart = knownStart || c.channelId == rootId;
+    if (! knownStart)
+        recordSnapshot (rootId, "시작 상태", "user");
 
     smix::ActionExecutor executor (session, root->getLibrary().catalog(), *controller);
     auto outcomes = executor.executeAll (actions, rootId);
 
-    const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    const double now = Engine::now();
+    bool changed = false;
     for (auto& o : outcomes)
     {
         if (! o.ok)
             continue;
+        changed = true;
         if (o.action.type == smix::ActionType::SetChain)
         {
-            // Only the channel's own instance initialises it, so nothing is applied twice.
             if (auto* owner = findInstance (o.action.channelId))
                 owner->getAutoMixer().markForInitialisation (o.action.channelId, o.action.plugins);
         }
-        else if (o.action.type == smix::ActionType::SetParam || o.action.type == smix::ActionType::NudgeParam)
+        else if (source != "auto" && (o.action.type == smix::ActionType::SetParam || o.action.type == smix::ActionType::NudgeParam))
         {
             for (auto* p : instances)
                 p->getAutoMixer().holdChannel (o.action.channelId, now);
         }
     }
 
+    // Parameter ramps take ~300 ms: record the result once they have settled.
+    if (changed)
+        juce::Timer::callAfterDelay (450, [this, rootId, label, source] {
+            if (findInstance (rootId) != nullptr)
+                recordSnapshot (rootId, label, source);
+            sendChangeMessage();
+        });
     sendChangeMessage();
     return outcomes;
+}
+
+bool SessionHub::restore (std::int64_t id, const std::string& rootId, juce::String* report)
+{
+    refresh();
+    auto* root = findInstance (rootId);
+    if (root == nullptr)
+        return false;
+    const auto plan = mixHistory.planRestore (id, session);
+    smix::ActionExecutor executor (session, root->getLibrary().catalog(), *controller, smix::ActionLimits::forRestore());
+    int changed = 0;
+    for (auto& o : executor.executeAll (plan.actions, rootId))
+        changed += o.ok ? 1 : 0;
+
+    for (auto& reload : plan.reloads)
+        if (auto* p = findInstance (reload.channelId))
+        {
+            std::vector<juce::MemoryBlock> states;
+            for (auto& s : reload.states)
+                states.emplace_back (s.data(), s.size());
+            p->loadChain (reload.pluginUids, states, reload.bypassed);
+            ++changed;
+        }
+
+    if (report != nullptr)
+    {
+        const auto* snap = mixHistory.find (id);
+        *report = ko ("'") + juce::String (snap != nullptr ? snap->label : std::string ("?")) + ko ("' 시점으로 되돌렸어요 (")
+                  + juce::String (changed) + ko ("개 항목)");
+        for (auto& n : plan.notes)
+            *report << "\n- " << juce::String (n);
+    }
+    juce::Timer::callAfterDelay (500, [this, rootId] {
+        if (findInstance (rootId) != nullptr)
+            recordSnapshot (rootId, "되돌림", "restore");
+        sendChangeMessage();
+    });
+    return true;
+}
+
+bool SessionHub::undo (const std::string& rootId, juce::String* report)
+{
+    // The snapshot before the latest one that involves this scope.
+    std::vector<std::int64_t> ids;
+    for (auto& s : mixHistory.snapshots())
+        for (auto& c : s.channels)
+            if (session.inScope (rootId, c.channelId))
+            {
+                ids.push_back (s.id);
+                break;
+            }
+    if (ids.size() < 2)
+        return false;
+    return restore (ids[ids.size() - 2], rootId, report);
 }
 
 smix::ChainPlan SessionHub::planChainFor (const std::string& channelId)
@@ -182,9 +262,8 @@ bool SessionHub::isAutoMixedByAncestor (const std::string& channelId) const
     const auto* c = session.find (channelId);
     for (int depth = 0; c != nullptr && depth < 32; ++depth)
     {
-        const std::string parentId = c->parentId;
         const smix::ChannelState* parent = nullptr;
-        if (parentId.empty())
+        if (c->parentId.empty())
         {
             for (auto& other : session.channels())
                 if (other.kind == smix::ChannelKind::Master && other.id != c->id)
@@ -192,7 +271,7 @@ bool SessionHub::isAutoMixedByAncestor (const std::string& channelId) const
         }
         else
         {
-            parent = session.find (parentId);
+            parent = session.find (c->parentId);
         }
         if (parent == nullptr)
             return false;
@@ -205,13 +284,15 @@ bool SessionHub::isAutoMixedByAncestor (const std::string& channelId) const
 
 void SessionHub::runAutoMix()
 {
-    const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    const double now = Engine::now();
+    const bool autoModule = engine().modules().isEnabled (smix::modules::ModuleId::AutoMix);
     for (auto* p : instances)
     {
         auto& mixer = p->getAutoMixer();
-        const bool fullAutoMix = p->isAutoMixEnabled() && ! isAutoMixedByAncestor (p->getInstanceId());
+        const bool fullAutoMix = autoModule && p->isAutoMixEnabled() && ! isAutoMixedByAncestor (p->getInstanceId());
+        if (fullAutoMix)
+            engine().modules().touch (smix::modules::ModuleId::AutoMix, now);
 
-        // Without auto mix, only give freshly inserted plugins their starting settings.
         const auto saved = mixer.getOptions();
         if (! fullAutoMix)
         {
@@ -220,30 +301,40 @@ void SessionHub::runAutoMix()
         }
         auto tick = mixer.tick (session, p->getInstanceId(), p->getLibrary().catalog(), now);
         mixer.getOptions() = saved;
-
         if (tick.actions.empty())
             continue;
 
         smix::ActionExecutor executor (session, p->getLibrary().catalog(), *controller);
         const auto outcomes = executor.executeAll (tick.actions, p->getInstanceId());
-
         for (auto& o : outcomes)
             if (o.ok && o.action.type == smix::ActionType::SetChain)
                 if (auto* owner = findInstance (o.action.channelId))
                     owner->getAutoMixer().markForInitialisation (o.action.channelId, o.action.plugins);
-
         for (auto& line : tick.log)
-            p->addLog ("auto", line);
-        for (auto& o : outcomes)
-            if (! o.ok)
-                p->addLog ("auto", ko ("건너뜀: ") + juce::String (o.message));
+            p->addLog ("auto", juce::String (line));
+
+        // Auto-mix steps go into the history at most every 30 s per scope.
+        auto& last = lastAutoSnapshot[p->getInstanceId()];
+        if (now - last > 30.0)
+        {
+            last = now;
+            recordSnapshot (p->getInstanceId(), "자동 믹스", "auto");
+        }
     }
 }
 
 void SessionHub::timerCallback()
 {
     refresh();
-    if (++tickCount % 4 == 0)  // auto mix every 2 s, then listen again
+    ++tickCount;
+    if (tickCount % 4 == 0)  // every 2 s: auto mix, then listen again
         runAutoMix();
+
+    if (tickCount % 4 == 2 && engine().modules().isEnabled (smix::modules::ModuleId::Hibernation))
+    {
+        const bool aggressive = engine().library().getSetting ("hibernateSilent", "0") == "1";
+        for (auto* p : instances)
+            p->hibernationTick (Engine::now(), aggressive);
+    }
     sendChangeMessage();
 }
