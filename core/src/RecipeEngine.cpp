@@ -204,6 +204,30 @@ void RecipeEngine::paramSet (const ChannelState& c, int slot, ParamRole role, do
     r.actions.push_back (std::move (a));
 }
 
+void RecipeEngine::paramSetNamed (const ChannelState& c, int slot, const std::string& name, double value, const std::string& unit,
+                                  Result& r, const std::string& reason) const
+{
+    const auto& s = c.chain[static_cast<size_t> (slot)];
+    for (auto& p : s.params)
+    {
+        if (toLowerAscii (p.name) != toLowerAscii (name))
+            continue;
+        if (! unit.empty() && mapperFor (s, p) == nullptr)
+            return;
+        MixAction a;
+        a.type = ActionType::SetParam;
+        a.channelId = c.id;
+        a.slot = slot;
+        a.paramIndex = p.index;
+        a.param = p.name;
+        a.value = value;
+        a.unit = unit;
+        a.reason = reason;
+        r.actions.push_back (std::move (a));
+        return;
+    }
+}
+
 void RecipeEngine::eqMove (const ChannelState& c, EqMove move, Result& r) const
 {
     const int slot = findSlot (c, PluginCategory::EQ);
@@ -517,7 +541,63 @@ RecipeEngine::Result RecipeEngine::initialSettings (const ChannelState& c, int s
             paramSet (c, slotIndex, ParamRole::Ceiling, -1.0, "dB", r, why + ": true-peak safety");
             break;
 
+        case PluginCategory::Gate:
+        {
+            // Close between hits; the range keeps some room sound instead of hard silence.
+            double range = 20.0, release = 120.0, key = 20.0;
+            switch (role)
+            {
+                case InstrumentRole::Toms:  range = 30.0; release = 220.0; key = 60.0; break;
+                case InstrumentRole::Kick:  range = 20.0; release = 120.0; break;
+                case InstrumentRole::Snare: range = 12.0; release = 100.0; key = 120.0; break;
+                default: range = 10.0; release = 150.0; break;
+            }
+            paramSet (c, slotIndex, ParamRole::Range, range, "dB", r, why);
+            paramSet (c, slotIndex, ParamRole::Release, release, "ms", r, why);
+            paramSet (c, slotIndex, ParamRole::Attack, 0.5, "ms", r, why);
+            paramSetNamed (c, slotIndex, "Key Filter", key, "Hz", r, why + ": ignore low-frequency bleed");
+            if (c.features.valid)
+                paramSet (c, slotIndex, ParamRole::Threshold, c.features.peakDb - 24.0, "dB", r, why + ": open on hits only");
+            break;
+        }
+
+        case PluginCategory::DeEsser:
+            paramSetNamed (c, slotIndex, "Frequency", role == InstrumentRole::BackingVocal ? 7000.0 : 6500.0, "Hz", r, why);
+            paramSet (c, slotIndex, ParamRole::Range, 6.0, "dB", r, why);
+            if (c.features.valid)
+                paramSet (c, slotIndex, ParamRole::Threshold, c.features.peakDb - 22.0, "dB", r, why);
+            break;
+
+        case PluginCategory::Saturation:
+        {
+            double drive = 3.0;
+            if (role == InstrumentRole::Bass) drive = 6.0;
+            else if (isDrumRole (role)) drive = 4.0;
+            if (c.kind == ChannelKind::Bus) drive = 2.0;
+            if (c.kind == ChannelKind::Master) drive = 1.0;
+            paramSet (c, slotIndex, ParamRole::Drive, drive, "dB", r, why + ": gentle harmonics");
+            break;
+        }
+
+        case PluginCategory::TransientShaper:
+            if (role == InstrumentRole::Kick || role == InstrumentRole::Snare)
+                paramSet (c, slotIndex, ParamRole::TransientAttack, 3.0, "dB", r, why + ": firmer hit");
+            if (role == InstrumentRole::Toms || role == InstrumentRole::Overheads)
+                paramSet (c, slotIndex, ParamRole::TransientSustain, -3.0, "dB", r, why + ": less ring");
+            break;
+
         case PluginCategory::Reverb:
+        {
+            double mix = 0.15, decay = 1.5, pre = 20.0;
+            if (isVocalRole (role)) { mix = 0.15; decay = 1.8; pre = 30.0; }
+            else if (role == InstrumentRole::Snare) { mix = 0.12; decay = 1.2; pre = 10.0; }
+            else if (role == InstrumentRole::Pad || role == InstrumentRole::Strings) { mix = 0.2; decay = 2.5; pre = 20.0; }
+            paramSet (c, slotIndex, ParamRole::Mix, mix, "", r, why + ": subtle insert level");
+            paramSet (c, slotIndex, ParamRole::Decay, decay * 1000.0, "ms", r, why);
+            paramSet (c, slotIndex, ParamRole::PreDelay, pre, "ms", r, why);
+            break;
+        }
+
         case PluginCategory::Delay:
             paramSet (c, slotIndex, ParamRole::Mix, 0.15, "", r, why + ": subtle insert level");
             break;

@@ -1,5 +1,7 @@
 #include "PluginLibrary.h"
 
+#include "BuiltinFormat.h"
+
 #include <fstream>
 
 namespace
@@ -61,6 +63,7 @@ juce::File PluginLibrary::dataDirectory()
 PluginLibrary::PluginLibrary()
 {
     formatManager.addDefaultFormats();
+    formatManager.addFormat (new BuiltinFormat());
 
     juce::PropertiesFile::Options options;
     options.applicationName = "SoundManagerAI";
@@ -79,7 +82,28 @@ PluginLibrary::PluginLibrary()
         if (! j.is_discarded())
             pluginCatalog = smix::PluginCatalog::fromJson (j);
     }
+    registerBuiltins();
     syncCatalogFromKnownList();
+}
+
+void PluginLibrary::registerBuiltins()
+{
+    // Sound Manager's own processors: always installed, allowed unless the user unticks them.
+    for (int i = 0; i < smix::dsp::kNumKinds; ++i)
+    {
+        const auto k = static_cast<smix::dsp::Kind> (i);
+        smix::PluginInfo info;
+        info.uid = smix::dsp::uidFor (k);
+        info.name = smix::dsp::displayName (k);
+        info.manufacturer = "Sound Manager";
+        info.format = BuiltinFormat::kFormatName;
+        info.hostCategory = "Fx|" + smix::toString (smix::dsp::categoryOf (k));
+        info.category = smix::dsp::categoryOf (k);
+        info.categoryOverridden = true;
+        info.allowed = true;
+        info.priority = 110;  // the user's own ticked plugins come first; built-ins fill the gaps
+        pluginCatalog.addOrUpdate (info);
+    }
 }
 
 PluginLibrary::~PluginLibrary()
@@ -160,6 +184,8 @@ std::vector<std::string> PluginLibrary::addPluginFile (const juce::String& path)
 
 std::optional<juce::PluginDescription> PluginLibrary::descriptionFor (const std::string& uid) const
 {
+    if (auto builtin = BuiltinFormat::descriptionFor (juce::String (uid)))
+        return builtin;
     for (auto& d : knownPlugins.getTypes())
         if (d.createIdentifierString().toStdString() == uid)
             return d;

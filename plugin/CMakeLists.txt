@@ -45,6 +45,7 @@ target_sources(SoundManager PRIVATE
     Source/AnalysisView.cpp
     Source/HostedChain.cpp
     Source/PluginLibrary.cpp
+    Source/BuiltinFormat.cpp
     Source/Engine.cpp
     Source/SessionHub.cpp
     Source/AssistantWorker.cpp)
@@ -76,7 +77,7 @@ target_link_libraries(SoundManager
 
 # Out-of-process plugin profiler, copied next to the plugin binary in every format.
 juce_add_console_app(SoundManagerProfiler PRODUCT_NAME "SoundManagerProfiler")
-target_sources(SoundManagerProfiler PRIVATE profiler/ProfilerMain.cpp)
+target_sources(SoundManagerProfiler PRIVATE profiler/ProfilerMain.cpp Source/BuiltinFormat.cpp)
 target_compile_definitions(SoundManagerProfiler PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_VST3=1 JUCE_PLUGINHOST_AU=1
     JUCE_PLUGINHOST_LADSPA=0 JUCE_PLUGINHOST_LV2=0)

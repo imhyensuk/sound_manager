@@ -25,7 +25,10 @@ add_library(smix_core STATIC
     src/knowledge/KnowledgeBase.cpp
     src/dialogue/Dialogue.cpp
     src/llm/IntentModel.cpp
-    src/ear/EarModel.cpp)
+    src/ear/EarModel.cpp
+    src/dsp/Builtin.cpp
+    src/dsp/Processors.cpp
+    src/dsp/BuiltinKnowledge.cpp)
 target_include_directories(smix_core PUBLIC include)
 target_link_libraries(smix_core PUBLIC nlohmann_json::nlohmann_json)
 if(SMIX_MEMOPRO_ENABLED)
@@ -74,7 +77,8 @@ if(SMIX_BUILD_TESTS)
         tests/AssistantTests.cpp
         tests/EarTests.cpp
         tests/LlmTests.cpp
-        tests/GenreTests.cpp)
+        tests/GenreTests.cpp
+        tests/DspTests.cpp)
     target_link_libraries(smix_core_tests PRIVATE smix_core smix_llm doctest::doctest)
     target_compile_definitions(smix_core_tests PRIVATE SMIX_TEST_TINY_LLM="${CMAKE_BINARY_DIR}/tiny-llm.gguf"
                                                        SMIX_SOURCE_DIR="${PROJECT_SOURCE_DIR}")

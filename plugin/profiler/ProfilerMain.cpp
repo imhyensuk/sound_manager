@@ -10,6 +10,8 @@
 #include <smix/PluginCatalog.h>
 #include <smix/knowledge/PluginProfile.h>
 
+#include "../Source/BuiltinFormat.h"
+
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -132,6 +134,7 @@ int main (int argc, char** argv)
 
     juce::AudioPluginFormatManager formats;
     formats.addDefaultFormats();
+    formats.addFormat (new BuiltinFormat());
 
     juce::StringArray uids;
     uids.addLines (queueFile.loadFileAsString());
@@ -140,7 +143,7 @@ int main (int argc, char** argv)
     for (auto& uid : uids)
     {
         const auto id = uid.toStdString();
-        std::optional<juce::PluginDescription> desc;
+        std::optional<juce::PluginDescription> desc = BuiltinFormat::descriptionFor (uid);
         for (auto& d : known.getTypes())
             if (d.createIdentifierString() == uid)
                 desc = d;
@@ -191,6 +194,7 @@ int main (int argc, char** argv)
                 emit ("PROGRESS " + std::to_string (done) + " " + std::to_string (total));
             });
         }
+        smix::dsp::annotateProfile (profile);  // built-ins: exact meaning of every parameter
         profile.loadMs = loadMs;
         profile.memoryBytes = after > before ? after - before : 0;
         instance.reset();

@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <smix/PluginCatalog.h>
+#include <smix/dsp/Builtin.h>
 
 /**
     Process-wide inventory of the user's plugins, shared by every Sound Manager instance
@@ -41,6 +42,7 @@ public:
 private:
     class ScanThread;
     void syncCatalogFromKnownList();
+    void registerBuiltins();
     void setStatus (const juce::String&);
 
     juce::AudioPluginFormatManager formatManager;

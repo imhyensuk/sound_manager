@@ -11,6 +11,7 @@
 #include <smix/GainBalancer.h>
 #include <smix/WavFile.h>
 #include <smix/style/GenreProfile.h>
+#include <smix/dsp/Builtin.h>
 
 #include <cmath>
 #include <iostream>
@@ -157,6 +158,9 @@ private:
                 compUid = comp[0];
                 lib.catalog().setAllowed (eqUid, true);
                 lib.catalog().setAllowed (compUid, true);
+                // The first part checks hosting of third-party plugins; built-ins are tested at the end.
+                for (int k = 0; k < smix::dsp::kNumKinds; ++k)
+                    lib.catalog().setAllowed (smix::dsp::uidFor (static_cast<smix::dsp::Kind> (k)), false);
                 lib.saveCatalog();
 
                 check (Engine::ProfilerJob::helperExecutable().existsAsFile(), "profiler helper found");
@@ -188,8 +192,10 @@ private:
                     check (compProfile && compProfile->measuredCategory == smix::PluginCategory::Compressor, "compressor measured as compressor");
                     if (eqProfile && ! eqProfile->effects.empty())
                         std::cout << "    " << eqProfile->effects.front().name << ": " << eqProfile->effects.front().summary << std::endl;
-                    const auto hits = e.knowledge().search ("압축하는 플러그인", 1);
-                    check (! hits.empty() && hits[0].uid == compUid, "knowledge search (Korean) finds the compressor");
+                    // (the built-in compressor, profiled in an earlier run, may rank alongside it)
+                    const auto hits = e.knowledge().search ("압축하는 플러그인", 3);
+                    check (std::any_of (hits.begin(), hits.end(), [this] (auto& h) { return h.uid == compUid; }),
+                           "knowledge search (Korean) finds the compressor");
                     check (e.knowledgeFile().existsAsFile(), "knowledge saved to disk");
 
                     render (6.0);
@@ -404,6 +410,67 @@ private:
                     check (e.currentGenre().isEmpty(), "genre profile switched off");
                     genreFile.deleteFile();
                     e.selectGenre ({});
+                    next();
+                }
+                break;
+
+            case 15:  // built-in processors: planned, hosted and controlled like any plugin
+            {
+                auto& lib = masterProc->getLibrary();
+                for (int k = 0; k < smix::dsp::kNumKinds; ++k)
+                    lib.catalog().setAllowed (smix::dsp::uidFor (static_cast<smix::dsp::Kind> (k)), true);
+                tomProc = makeProcessor ("Tom 1");
+                auto& hub = tomProc->getHub();
+                hub.refresh();
+                const auto uids = hub.planChainFor (tomProc->getInstanceId()).pluginUids();
+                check (! uids.empty() && uids[0] == smix::dsp::uidFor (smix::dsp::Kind::Gate), "tom plan starts with the built-in gate");
+                plannedSize = static_cast<int> (uids.size());
+                smix::MixAction a;
+                a.type = smix::ActionType::SetChain;
+                a.channelId = tomProc->getInstanceId();
+                a.plugins = uids;
+                hub.apply ({ a }, tomProc->getInstanceId(), "AI 체인 계획", "plan");
+                kickProc->getEngine().profiler().start ({ smix::dsp::uidFor (smix::dsp::Kind::Compressor) });
+                next();
+                break;
+            }
+
+            case 16:
+                // ...and wait until the auto mixer has given the new plugins their starting settings.
+                if (waitUntil ([this] { return tomProc->getChain().size() == plannedSize && ! kickProc->getEngine().profiler().isRunning()
+                                               && ++ticks > 150; }, 60.0, false))
+                {
+                    auto* gate = tomProc->getChain().slot (0);
+                    check (gate != nullptr && gate->instance != nullptr && gate->instance->getName() == "SM Gate", "built-in gate hosted");
+                    smix::MixAction a;
+                    a.type = smix::ActionType::SetParam;
+                    a.channelId = tomProc->getInstanceId();
+                    a.slot = 0;
+                    a.param = "Threshold";
+                    a.value = -30.0;
+                    a.unit = "dB";
+                    for (auto& o : tomProc->getHub().apply ({ a }, tomProc->getInstanceId(), "test", "test"))
+                        std::cout << "    " << o.message << std::endl;
+                    ticks = 0;
+                    next();
+                }
+                break;
+
+            case 17:
+                if (waitUntil ([this] { return ++ticks > 40; }, 10.0, false))
+                {
+                    ticks = 0;
+                    juce::String text;
+                    hostedValue (*tomProc, 0, "Threshold", &text);
+                    check (text.startsWith ("-30"), "built-in gate threshold set in dB -> " + text);
+                    auto& e = kickProc->getEngine();
+                    auto lease = e.modules().acquire (smix::modules::ModuleId::Knowledge, Engine::now());
+                    const auto prof = e.knowledge().get (smix::dsp::uidFor (smix::dsp::Kind::Compressor));
+                    check (prof && ! prof->failed && prof->measuredCategory == smix::PluginCategory::Compressor
+                               && juce::String::fromUTF8 (prof->summary.c_str()).contains (juce::String::fromUTF8 ("내장")),
+                           "built-in compressor profiled and annotated");
+                    if (prof)
+                        std::cout << "    " << prof->summary.substr (0, 160) << std::endl;
                     stage = 99;
                 }
                 break;
@@ -411,6 +478,7 @@ private:
             default:
                 stopTimer();
                 restored.reset();
+                tomProc.reset();
                 unnamedProc.reset();
                 kickProc.reset();
                 vocalProc.reset();
@@ -423,7 +491,7 @@ private:
 
     int stage = 0, failed = 0, ticks = 0, plannedSize = 0;
     double stageStart = 0.0;
-    std::unique_ptr<SoundManagerProcessor> masterProc, kickProc, vocalProc, unnamedProc, restored;
+    std::unique_ptr<SoundManagerProcessor> masterProc, kickProc, vocalProc, unnamedProc, restored, tomProc;
     std::string eqUid, compUid;
     long kickN = 0, vocalN = 0;
     double vocalPhase = 0.0;
