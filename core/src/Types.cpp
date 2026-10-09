@@ -119,7 +119,7 @@ InstrumentRole guessRoleFromTrackName (const std::string& trackName)
 {
     const auto n = toLowerAscii (trackName);
 
-    if (containsAny (n, { "master", "stereo out", "마스터" }))                    return InstrumentRole::Master;
+    if (containsAny (n, { "master", "stereo out", "output 1-2", "마스터", "스테레오 출력", "출력 1-2" })) return InstrumentRole::Master;
     if (containsAny (n, { "drum bus", "drums bus", "drum grp", "드럼 버스", "드럼버스" })) return InstrumentRole::DrumBus;
     if (containsAny (n, { "kick", "킥" }))                                   return InstrumentRole::Kick;
     if (containsAny (n, { "snare", "snr", "스네어" }))                        return InstrumentRole::Snare;
@@ -147,9 +147,10 @@ InstrumentRole guessRoleFromTrackName (const std::string& trackName)
 ChannelKind guessKindFromTrackName (const std::string& trackName)
 {
     const auto n = toLowerAscii (trackName);
-    if (containsAny (n, { "master", "stereo out", "마스터" }))
+    // Logic Pro: the master is "Stereo Out" ("Output 1-2"), busses are "Aux n" or summing stacks.
+    if (containsAny (n, { "master", "stereo out", "output 1-2", "마스터", "스테레오 출력", "출력 1-2" }))
         return ChannelKind::Master;
-    if (containsAny (n, { "bus", "group", "grp", "sum", "버스", "그룹" }))
+    if (containsAny (n, { "bus", "group", "grp", "sum", "aux", "stack", "버스", "그룹", "보조", "스택" }))
         return ChannelKind::Bus;
     return ChannelKind::Track;
 }

@@ -36,8 +36,9 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSMIX_BUILD_INTEGRATION_TEST=ON
 
+      # JUCE + llama.cpp translation units are large: an unbounded -j runs the Linux runner out of memory.
       - name: Build
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build --config Release --parallel 3
 
       - name: Core unit tests
         run: ctest --test-dir build -C Release -R smix_core_tests --output-on-failure
@@ -45,6 +46,42 @@ jobs:
       - name: Hosting integration test (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a ctest --test-dir build -C Release -R smix_integration --output-on-failure
+
+      - name: Hosting integration test (macOS)
+        if: runner.os == 'macOS'
+        run: ctest --test-dir build -C Release -R smix_integration --output-on-failure
+
+      # Logic Pro only loads Audio Units that pass Apple's validator.
+      - name: Validate the Audio Unit (auval)
+        if: runner.os == 'macOS'
+        run: |
+          COMP="build/plugin/SoundManager_artefacts/Release/AU/Sound Manager AI.component"
+          codesign --force --deep --sign - "$COMP"
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "$COMP" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -a | grep -i "Sound Manager" || true
+          auval -strict -v aufx Smx1 Smgr
+
+      - name: Package for Logic Pro (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist/SoundManagerAI-macOS
+          A=build/plugin/SoundManager_artefacts/Release
+          cp -R "$A/AU/Sound Manager AI.component" dist/SoundManagerAI-macOS/
+          cp -R "$A/VST3/Sound Manager AI.vst3" dist/SoundManagerAI-macOS/
+          cp -R "$A/Standalone/Sound Manager AI.app" dist/SoundManagerAI-macOS/ || true
+          codesign --force --deep --sign - "dist/SoundManagerAI-macOS/Sound Manager AI.vst3"
+          cp packaging/macos/install.command dist/SoundManagerAI-macOS/
+          cp build/core/smix_learn_mix build/core/smix_ear_features build/core/smix_ear_classify dist/SoundManagerAI-macOS/ || true
+          cd dist && ditto -c -k --keepParent SoundManagerAI-macOS SoundManagerAI-macOS.zip
+
+      - name: Upload Logic Pro package (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SoundManagerAI-macOS-LogicPro
+          path: dist/SoundManagerAI-macOS.zip
 
       - name: Upload plugins
         uses: actions/upload-artifact@v4

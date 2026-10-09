@@ -93,16 +93,25 @@ void SoundManagerProcessor::releaseResources()
 bool SoundManagerProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     const auto out = layouts.getMainOutputChannelSet();
+    const auto in = layouts.getMainInputChannelSet();
     if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
         return false;
-    return layouts.getMainInputChannelSet() == out;
+    // mono, stereo, and Logic's "mono -> stereo" (e.g. a reverb on a mono track)
+    return in == out || (in == juce::AudioChannelSet::mono() && out == juce::AudioChannelSet::stereo());
 }
 
 void SoundManagerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
-    for (auto ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
-        buffer.clear (ch, 0, buffer.getNumSamples());
+    // Mono in, stereo out: the source goes to both sides (the chain may then widen it).
+    const int inputs = getTotalNumInputChannels();
+    for (auto ch = inputs; ch < getTotalNumOutputChannels(); ++ch)
+    {
+        if (inputs == 1)
+            buffer.copyFrom (ch, 0, buffer, 0, 0, buffer.getNumSamples());
+        else
+            buffer.clear (ch, 0, buffer.getNumSamples());
+    }
 
     // Remember when the channel last carried signal (hibernation wakes sleeping plugins on it).
     if (buffer.getMagnitude (0, buffer.getNumSamples()) > 1.0e-4f)

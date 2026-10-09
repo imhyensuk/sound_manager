@@ -1,4 +1,7 @@
 include(FetchContent)
+
+# CMake 4 refuses projects that declare compatibility with CMake < 3.5 (doctest 2.4.11 does).
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "")
 set(FETCHCONTENT_QUIET ON)
 
 FetchContent_Declare(nlohmann_json

@@ -47,7 +47,13 @@ private:
 //==============================================================================
 juce::File PluginLibrary::dataDirectory()
 {
+   #if JUCE_MAC
+    // ~/Library/Application Support/SoundManagerAI (next to the settings file)
+    auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                   .getChildFile ("Application Support").getChildFile ("SoundManagerAI");
+   #else
     auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("SoundManagerAI");
+   #endif
     dir.createDirectory();
     return dir;
 }
