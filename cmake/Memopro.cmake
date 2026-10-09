@@ -29,9 +29,14 @@ if(SMIX_WITH_MEMOPRO)
 
         set(_mp_target_dir "${CMAKE_BINARY_DIR}/memopro-target")
         set(_mp_lib "${_mp_target_dir}/release/${CMAKE_STATIC_LIBRARY_PREFIX}memopro_c${CMAKE_STATIC_LIBRARY_SUFFIX}")
+        # Rust must target the same minimum macOS as the plugin (otherwise: "built for newer macOS").
+        set(_mp_env "")
+        if(APPLE AND CMAKE_OSX_DEPLOYMENT_TARGET)
+            set(_mp_env "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        endif()
         add_custom_command(
             OUTPUT "${_mp_lib}"
-            COMMAND "${SMIX_CARGO}" build -p memopro-c --release --target-dir "${_mp_target_dir}"
+            COMMAND ${CMAKE_COMMAND} -E env ${_mp_env} "${SMIX_CARGO}" build -p memopro-c --release --target-dir "${_mp_target_dir}"
             WORKING_DIRECTORY "${memopro_SOURCE_DIR}"
             COMMENT "Building memopro-c (Rust)"
             VERBATIM)
@@ -48,7 +53,9 @@ if(SMIX_WITH_MEMOPRO)
             list(APPEND _mp_system_libs m)
         endif()
         if(APPLE)
-            list(APPEND _mp_system_libs "-framework CoreFoundation" "-framework Security")
+            # sysinfo / objc2-io-kit (hardware queries) and Metal (unified-memory residency) on Apple.
+            list(APPEND _mp_system_libs "-framework CoreFoundation" "-framework Security" "-framework IOKit"
+                                        "-framework Metal" "-framework Foundation")
         endif()
         set_property(TARGET memopro_c PROPERTY INTERFACE_LINK_LIBRARIES ${_mp_system_libs})
         set(SMIX_MEMOPRO_ENABLED ON)
