@@ -46,6 +46,7 @@ class Test : private juce::Timer
 public:
     Test() { startTimer (20); }
     int failures() const { return failed; }
+    bool finished() const { return completed; }
 
 private:
     void check (bool ok, const juce::String& what)
@@ -527,12 +528,14 @@ private:
                 vocalProc.reset();
                 masterProc.reset();
                 std::cout << (failed == 0 ? "ALL PASSED" : juce::String (failed) + " FAILED") << std::endl;
+                completed = true;
                 juce::MessageManager::getInstance()->stopDispatchLoop();
                 break;
         }
     }
 
     int stage = 0, failed = 0, ticks = 0, plannedSize = 0;
+    bool completed = false;
     double stageStart = 0.0;
     std::unique_ptr<SoundManagerProcessor> masterProc, kickProc, vocalProc, unnamedProc, restored, tomProc;
     std::string eqUid, compUid;
@@ -553,6 +556,12 @@ int main()
         Test test;
         juce::MessageManager::getInstance()->runDispatchLoop();
         failures = test.failures();
+        if (! test.finished())
+        {
+            // The message loop must not end before the last stage (it did on macOS once).
+            std::cout << "FAIL  message loop ended before the test finished" << std::endl;
+            ++failures;
+        }
     }
     return failures == 0 ? 0 : 1;
 }
