@@ -529,7 +529,6 @@ private:
                 masterProc.reset();
                 std::cout << (failed == 0 ? "ALL PASSED" : juce::String (failed) + " FAILED") << std::endl;
                 completed = true;
-                juce::MessageManager::getInstance()->stopDispatchLoop();
                 break;
         }
     }
@@ -554,7 +553,10 @@ int main()
     int failures = 0;
     {
         Test test;
-        juce::MessageManager::getInstance()->runDispatchLoop();
+        // Drive the loop ourselves until the last stage (portable: macOS console processes cannot use [NSApp run]).
+        const auto deadline = juce::Time::getMillisecondCounterHiRes() + 900000.0;
+        while (! test.finished() && juce::Time::getMillisecondCounterHiRes() < deadline)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
         failures = test.failures();
         if (! test.finished())
         {

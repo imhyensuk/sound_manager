@@ -28,7 +28,7 @@ endforeach()
 # A second process for the cross-process link test.
 juce_add_console_app(SmxLinkPeer PRODUCT_NAME "SmxLinkPeer")
 target_sources(SmxLinkPeer PRIVATE LinkPeer.cpp ../Source/SessionLink.cpp)
-target_compile_definitions(SmxLinkPeer PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_compile_definitions(SmxLinkPeer PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(SmxLinkPeer PRIVATE smix_core juce::juce_events
     PUBLIC juce::juce_recommended_config_flags)
 

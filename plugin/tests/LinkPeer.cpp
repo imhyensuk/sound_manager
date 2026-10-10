@@ -16,7 +16,7 @@ public:
     Peer (const juce::String& key, int port, int seconds)
         : link ([] (const nlohmann::json& call) {
               std::cout << "CALL " << call.dump() << std::endl;
-              juce::MessageManager::getInstance()->stopDispatchLoop();
+              done = true;
           }),
           deadline (juce::Time::getMillisecondCounterHiRes() + seconds * 1000.0)
     {
@@ -40,8 +40,13 @@ private:
         c.features.peakDb = -6.0f;
         link.publish ({ c }, { { c.id, false } });
         if (juce::Time::getMillisecondCounterHiRes() > deadline)
-            juce::MessageManager::getInstance()->stopDispatchLoop();
+            done = true;
     }
+
+public:
+    static inline bool done = false;
+
+private:
 
     SessionLink link;
     double deadline;
@@ -62,7 +67,8 @@ int main (int argc, char** argv)
     }
     {
         Peer peer (key, port, seconds);
-        juce::MessageManager::getInstance()->runDispatchLoop();
+        while (! Peer::done)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
     }
     return 0;
 }

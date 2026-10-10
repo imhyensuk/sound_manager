@@ -58,6 +58,8 @@ target_compile_definitions(SoundManager PUBLIC
     JUCE_USE_MP3AUDIOFORMAT=1
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
+    # Lets the tests drive the message loop themselves ([NSApp run] returns at once in a console process).
+    JUCE_MODAL_LOOPS_PERMITTED=1
     # Hosting: the plugin loads the user's own plugins inside itself.
     JUCE_PLUGINHOST_VST3=1
     JUCE_PLUGINHOST_AU=1
