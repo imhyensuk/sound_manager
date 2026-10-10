@@ -292,8 +292,8 @@ private:
                 }
                 break;
 
-            case 8:
-                if (waitUntil ([this] { return elapsed (0.8); }, 20.0))
+            case 8:  // the restore glides back; protect only once the EQ has settled
+                if (waitUntil ([this] { return elapsed (0.8) && std::abs (hostedValue (*kickProc, 0, "Band 2 Gain") - eqBefore) < 0.001f; }, 20.0))
                 {
                     check (std::abs (hostedValue (*kickProc, 0, "Band 2 Gain") - eqBefore) < 0.01f, "history restore brought the EQ back");
                     // Protection: the user locks the kick EQ, then asks for something that needs it.

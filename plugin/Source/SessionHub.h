@@ -82,4 +82,6 @@ private:
     std::unique_ptr<SessionLink> link;
     std::vector<smix::ChannelState> remote;  // channels owned by other processes (this refresh)
     std::set<std::string> remoteIds;
+
+    JUCE_DECLARE_WEAK_REFERENCEABLE (SessionHub)
 };

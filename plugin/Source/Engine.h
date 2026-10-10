@@ -89,6 +89,7 @@ private:
     std::unique_ptr<ProfilerJob> profilerJob;
     std::unique_ptr<ReferenceJob> refJob;
 
+    JUCE_DECLARE_WEAK_REFERENCEABLE (Engine)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Engine)
 };
 

@@ -354,9 +354,12 @@ void Engine::ProfilerJob::run()
         if (! runHelper (remaining))
             break;
 
-    juce::MessageManager::callAsync ([this] {
-        engine.saveKnowledge();
-        engine.sendChangeMessage();
+    juce::MessageManager::callAsync ([safe = juce::WeakReference<Engine> (&engine)] {
+        if (auto* e = safe.get())
+        {
+            e->saveKnowledge();
+            e->sendChangeMessage();
+        }
     });
     const juce::ScopedLock sl (lock);
     progress.finish (Engine::now());
@@ -420,10 +423,13 @@ bool Engine::ProfilerJob::runHelper (std::vector<std::string>& remaining)
                     continue;
                 auto profile = knowledge::PluginProfile::fromJson (j);
                 remaining.erase (std::remove (remaining.begin(), remaining.end(), profile.uid), remaining.end());
-                juce::MessageManager::callAsync ([this, profile] {
-                    auto lease = engine.modules().acquire (modules::ModuleId::Knowledge, Engine::now());
-                    engine.knowledge().upsert (profile);
-                    engine.sendChangeMessage();
+                juce::MessageManager::callAsync ([safe = juce::WeakReference<Engine> (&engine), profile] {
+                    if (auto* e = safe.get())
+                    {
+                        auto lease = e->modules().acquire (modules::ModuleId::Knowledge, Engine::now());
+                        e->knowledge().upsert (profile);
+                        e->sendChangeMessage();
+                    }
                 });
                 const juce::ScopedLock sl (lock);
                 progress.advance (1, Engine::now());
@@ -453,9 +459,12 @@ bool Engine::ProfilerJob::runHelper (std::vector<std::string>& remaining)
         failed.version = knowledge::PluginProfile::kVersion;
         failed.error = "the plugin crashed or hung while being measured";
         remaining.erase (remaining.begin());
-        juce::MessageManager::callAsync ([this, failed] {
-            auto lease = engine.modules().acquire (modules::ModuleId::Knowledge, Engine::now());
-            engine.knowledge().upsert (failed);
+        juce::MessageManager::callAsync ([safe = juce::WeakReference<Engine> (&engine), failed] {
+            if (auto* e = safe.get())
+            {
+                auto lease = e->modules().acquire (modules::ModuleId::Knowledge, Engine::now());
+                e->knowledge().upsert (failed);
+            }
         });
         const juce::ScopedLock sl (lock);
         ++failures;
@@ -603,7 +612,10 @@ void Engine::ReferenceJob::run()
     }
 
     const auto profile = analyzer->finish (file.getFileNameWithoutExtension().toStdString(), file.getFullPathName().toStdString());
-    juce::MessageManager::callAsync ([this, profile] { engine.addReference (profile); });
+    juce::MessageManager::callAsync ([safe = juce::WeakReference<Engine> (&engine), profile] {
+        if (auto* e = safe.get())
+            e->addReference (profile);
+    });
 
     juce::String desc;
     for (auto& d : profile.descriptors())

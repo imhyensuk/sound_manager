@@ -258,10 +258,13 @@ std::vector<smix::ActionOutcome> SessionHub::apply (const std::vector<smix::MixA
 
     // Parameter ramps take ~300 ms: record the result once they have settled.
     if (changed)
-        juce::Timer::callAfterDelay (450, [this, rootId, label, source] {
-            if (findInstance (rootId) != nullptr)
-                recordSnapshot (rootId, label, source);
-            sendChangeMessage();
+        juce::Timer::callAfterDelay (450, [safe = juce::WeakReference<SessionHub> (this), rootId, label, source] {
+            auto* self = safe.get();  // the last instance may have been removed meanwhile
+            if (self == nullptr)
+                return;
+            if (self->findInstance (rootId) != nullptr)
+                self->recordSnapshot (rootId, label, source);
+            self->sendChangeMessage();
         });
     sendChangeMessage();
     return outcomes;
@@ -297,10 +300,13 @@ bool SessionHub::restore (std::int64_t id, const std::string& rootId, juce::Stri
         for (auto& n : plan.notes)
             *report << "\n- " << juce::String (n);
     }
-    juce::Timer::callAfterDelay (500, [this, rootId] {
-        if (findInstance (rootId) != nullptr)
-            recordSnapshot (rootId, "되돌림", "restore");
-        sendChangeMessage();
+    juce::Timer::callAfterDelay (500, [safe = juce::WeakReference<SessionHub> (this), rootId] {
+        auto* self = safe.get();
+        if (self == nullptr)
+            return;
+        if (self->findInstance (rootId) != nullptr)
+            self->recordSnapshot (rootId, "되돌림", "restore");
+        self->sendChangeMessage();
     });
     return true;
 }
