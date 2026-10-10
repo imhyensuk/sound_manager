@@ -3,6 +3,9 @@
 #include <cmath>
 #include <limits>
 
+#include "smix/dsp/Builtin.h"
+#include "smix/style/GenreProfile.h"
+
 namespace smix
 {
 
@@ -473,10 +476,120 @@ RecipeEngine::Result RecipeEngine::actionsFor (const ChannelState& c, const Goal
     return r;
 }
 
+bool RecipeEngine::learnedSettings (const ChannelState& c, int slotIndex, Result& r) const
+{
+    const auto genre = style::activeGenre();
+    const style::ProcessingSettings* l = genre ? genre->processingFor (c.role) : nullptr;
+    if (l == nullptr)
+        return false;
+
+    const auto& s = c.chain[static_cast<size_t> (slotIndex)];
+    const auto why = std::string ("learned from ") + genre->name + " (" + toString (c.role) + ")";
+    // Thresholds were learned relative to the input's loudness; use this channel's loudness.
+    const double level = c.features.valid && c.features.shortTermLufs > -60.0f ? c.features.shortTermLufs : l->inputLevelDb;
+    auto isBuiltin = [&s] (dsp::Kind k) { return s.pluginUid == dsp::uidFor (k); };
+
+    switch (s.category)
+    {
+        case PluginCategory::EQ:
+        {
+            if (! l->eq.used)
+                return true;  // the engineer left this instrument's tone alone
+            if (isBuiltin (dsp::Kind::EQ))
+            {
+                paramSetNamed (c, slotIndex, "Low Cut Freq", l->eq.lowCutHz > 20.5f ? l->eq.lowCutHz : 20.0, "Hz", r, why);
+                paramSetNamed (c, slotIndex, "Low Cut Slope", l->eq.steep ? 1.0 : 0.0, "", r, why);
+                for (int b = 0; b < 6; ++b)
+                {
+                    const auto& band = l->eq.bands[static_cast<size_t> (b)];
+                    const std::string n = "Band " + std::to_string (b + 1) + " ";
+                    paramSetNamed (c, slotIndex, n + "Freq", band.freq, "Hz", r, why);
+                    paramSetNamed (c, slotIndex, n + "Gain", band.gain, "dB", r, why);
+                    if (b >= 1 && b <= 4)  // Q has no unit: send it normalised with the built-in's own range
+                    {
+                        auto eq = dsp::create (dsp::Kind::EQ);
+                        const auto& spec = eq->specs()[static_cast<size_t> (eq->indexOf ("b" + std::to_string (b + 1) + "_q"))];
+                        paramSetNamed (c, slotIndex, n + "Q", dsp::toNormalised (spec, band.q), "", r, why);
+                    }
+                }
+                paramSetNamed (c, slotIndex, "High Cut Freq", l->eq.highCutHz > 0.0f ? l->eq.highCutHz : 22000.0, "Hz", r, why);
+                return true;
+            }
+            // Any other EQ: the same moves through its own bands.
+            if (l->eq.lowCutHz > 20.5f)
+                paramSet (c, slotIndex, ParamRole::LowCutFreq, l->eq.lowCutHz, "Hz", r, why);
+            for (auto& band : l->eq.bands)
+                if (std::abs (band.gain) >= 0.75f)
+                    eqMove (c, { band.freq, band.gain }, r);
+            return true;
+        }
+
+        case PluginCategory::Compressor:
+            if (! l->comp.used)
+                return false;
+            paramSet (c, slotIndex, ParamRole::Threshold, level + l->comp.thresholdRel, "dB", r, why);
+            paramSet (c, slotIndex, ParamRole::Ratio, l->comp.ratio, "ratio", r, why);
+            paramSet (c, slotIndex, ParamRole::Attack, l->comp.attackMs, "ms", r, why);
+            paramSet (c, slotIndex, ParamRole::Release, l->comp.releaseMs, "ms", r, why);
+            paramSet (c, slotIndex, ParamRole::Knee, l->comp.kneeDb, "dB", r, why);
+            return true;
+
+        case PluginCategory::Gate:
+            if (! l->gate.used)
+                return false;
+            paramSet (c, slotIndex, ParamRole::Threshold, level + l->gate.thresholdRel, "dB", r, why);
+            paramSet (c, slotIndex, ParamRole::Range, l->gate.rangeDb, "dB", r, why);
+            paramSet (c, slotIndex, ParamRole::Attack, l->gate.attackMs, "ms", r, why);
+            paramSet (c, slotIndex, ParamRole::Release, l->gate.releaseMs, "ms", r, why);
+            paramSetNamed (c, slotIndex, "Hold", l->gate.holdMs, "ms", r, why);
+            return true;
+
+        case PluginCategory::DeEsser:
+            if (! l->deesser.used)
+                return false;
+            paramSetNamed (c, slotIndex, "Frequency", l->deesser.freqHz, "Hz", r, why);
+            paramSet (c, slotIndex, ParamRole::Threshold, level + l->deesser.thresholdRel, "dB", r, why);
+            paramSet (c, slotIndex, ParamRole::Range, l->deesser.rangeDb, "dB", r, why);
+            return true;
+
+        case PluginCategory::Saturation:
+            if (! l->saturation.used)
+                return false;
+            paramSet (c, slotIndex, ParamRole::Drive, l->saturation.driveDb, "dB", r, why);
+            if (isBuiltin (dsp::Kind::Saturation))
+                paramSetNamed (c, slotIndex, "Type", l->saturation.type / 2.0, "", r, why);
+            return true;
+
+        case PluginCategory::TransientShaper:
+            if (! l->envelope.used)
+                return false;
+            paramSet (c, slotIndex, ParamRole::TransientAttack, l->envelope.attackDb, "dB", r, why);
+            paramSet (c, slotIndex, ParamRole::TransientSustain, l->envelope.sustainDb, "dB", r, why);
+            return true;
+
+        case PluginCategory::Reverb:
+            if (! l->reverb.used)
+                return false;
+            paramSet (c, slotIndex, ParamRole::Decay, l->reverb.decayS * 1000.0, "ms", r, why);
+            paramSet (c, slotIndex, ParamRole::PreDelay, l->reverb.predelayMs, "ms", r, why);
+            paramSet (c, slotIndex, ParamRole::Damping, l->reverb.dampingHz, "Hz", r, why);
+            paramSet (c, slotIndex, ParamRole::LowCutFreq, l->reverb.lowCutHz, "Hz", r, why);
+            if (isBuiltin (dsp::Kind::Reverb))
+                paramSetNamed (c, slotIndex, "Size", l->reverb.sizePct, "%", r, why);
+            paramSet (c, slotIndex, ParamRole::Mix, l->reverb.mixPct / 100.0, "", r, why);
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 RecipeEngine::Result RecipeEngine::initialSettings (const ChannelState& c, int slotIndex) const
 {
     Result r;
     if (slotIndex < 0 || slotIndex >= static_cast<int> (c.chain.size()))
+        return r;
+    if (learnedSettings (c, slotIndex, r))
         return r;
 
     const auto& s = c.chain[static_cast<size_t> (slotIndex)];

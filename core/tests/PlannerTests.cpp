@@ -2,6 +2,10 @@
 
 #include <smix/ChainPlanner.h>
 #include <smix/GainBalancer.h>
+#include <smix/RecipeEngine.h>
+#include <smix/style/GenreProfile.h>
+
+#include <algorithm>
 
 #include "TestHelpers.h"
 
@@ -100,4 +104,44 @@ TEST_CASE ("gain balancer pulls a too-loud hihat down and keeps the mean")
     CHECK (hat < 0.0f);
     CHECK (vox > 0.0f);
     CHECK (std::abs (hat) <= 1.0f);  // rate limited
+}
+
+TEST_CASE ("genre profile with learned processing drives the chain and the starting settings")
+{
+    auto genre = std::make_shared<style::GenreProfile>();
+    genre->name = "CCM";
+    style::ProcessingSettings vocal;
+    vocal.inputLevelDb = -20.0f;
+    vocal.deesser.used = true;
+    vocal.comp = { true, -6.0f, 3.0f, 12.0f, 90.0f, 6.0f, 4.0f };
+    vocal.reverb.used = false;  // this engineer kept the vocal dry on the track
+    genre->processing[InstrumentRole::LeadVocal] = vocal;
+    style::ProcessingSettings kick;  // learned: no gate on the kick
+    kick.comp.used = true;
+    genre->processing[InstrumentRole::Kick] = kick;
+    style::setActiveGenre (genre);
+
+    const auto catalog = makeCatalog();
+    PerceptualProfile neutral;
+    const auto vox = ChainPlanner().plan (ChannelKind::Track, InstrumentRole::LeadVocal, neutral, catalog).pluginUids();
+    CHECK (std::find (vox.begin(), vox.end(), "deess") != vox.end());  // learned, although nothing sounds sibilant
+    CHECK (std::find (vox.begin(), vox.end(), "verb") == vox.end());   // learned: no insert reverb
+    const auto k = ChainPlanner().plan (ChannelKind::Track, InstrumentRole::Kick, neutral, catalog).pluginUids();
+    CHECK (std::find (k.begin(), k.end(), "gate") == k.end());
+
+    // Starting settings of a third-party compressor follow the learned values, relative to this channel's level.
+    auto c = test::makeChannel ("v", "Lead Vox", InstrumentRole::LeadVocal);
+    c.chain.push_back (test::makeCompressor());
+    c.features.valid = true;
+    c.features.shortTermLufs = -14.0f;
+    const auto res = RecipeEngine().initialSettings (c, 0);
+    bool threshold = false, ratio = false;
+    for (auto& a : res.actions)
+    {
+        if (a.param == "Threshold") threshold = a.value && std::abs (*a.value - (-20.0)) < 0.01;  // -14 + (-6)
+        if (a.param == "Ratio") ratio = a.value && std::abs (*a.value - 3.0) < 0.01;
+    }
+    CHECK (threshold);
+    CHECK (ratio);
+    style::setActiveGenre (nullptr);
 }

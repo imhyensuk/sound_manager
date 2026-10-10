@@ -88,6 +88,8 @@ private:
     void paramSetNamed (const ChannelState&, int slot, const std::string& name, double value, const std::string& unit, Result&,
                         const std::string& reason) const;
     void gainNudge (const ChannelState&, double deltaDb, Result&, const std::string& reason) const;
+    /** Starting settings copied from the active genre profile (how the user's engineer did it). */
+    bool learnedSettings (const ChannelState&, int slot, Result&) const;
 };
 
 } // namespace smix

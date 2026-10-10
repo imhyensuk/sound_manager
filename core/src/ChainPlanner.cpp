@@ -2,6 +2,8 @@
 
 #include <functional>
 
+#include "smix/style/GenreProfile.h"
+
 namespace smix
 {
 
@@ -47,24 +49,40 @@ ChainPlan ChainPlanner::plan (ChannelKind kind, InstrumentRole role, const Perce
     auto always = [] { return true; };
     auto score = [&p] (D d) { return p.score (d); };
 
+    // The user's own genre profile decides which processors this instrument gets, when it knows.
+    const auto genre = style::activeGenre();
+    const style::ProcessingSettings* learned = genre ? genre->processingFor (role) : nullptr;
+    auto learnedOr = [learned] (bool (*used) (const style::ProcessingSettings&), std::function<bool()> rule) -> std::function<bool()> {
+        if (learned == nullptr)
+            return rule;
+        const bool u = used (*learned);
+        return [u] { return u; };
+    };
+
     std::vector<Step> steps;
 
     if (kind == ChannelKind::Track)
     {
         steps = {
             { C::PitchCorrection, "pitch correction must see the raw performance", [&] { return role == InstrumentRole::LeadVocal; }, false },
-            { C::Gate, "remove bleed between hits before anything adds gain", [&] { return shell; }, false },
+            { C::Gate, "remove bleed between hits before anything adds gain",
+              learnedOr ([] (auto& l) { return l.gate.used; }, [&] { return shell; }), false },
             { C::EQ, "subtractive EQ: low cut and resonance/mud cleanup before dynamics", always, true },
-            { C::DeEsser, "tame sibilance before compression exaggerates it", [&] { return vocal && score (D::Sibilant) > 0.2f; }, false },
-            { C::Compressor, "control dynamics and shape the envelope", [&] { return dynamicSource || score (D::Squashed) < -0.3f; }, true },
-            { C::TransientShaper, "restore attack/punch after compression", [&] { return drums && score (D::Punchy) < -0.2f; }, false },
+            { C::DeEsser, "tame sibilance before compression exaggerates it",
+              learnedOr ([] (auto& l) { return l.deesser.used; }, [&] { return vocal && score (D::Sibilant) > 0.2f; }), false },
+            { C::Compressor, "control dynamics and shape the envelope",
+              learnedOr ([] (auto& l) { return l.comp.used; }, [&] { return dynamicSource || score (D::Squashed) < -0.3f; }), true },
+            { C::TransientShaper, "restore attack/punch after compression",
+              learnedOr ([] (auto& l) { return l.envelope.used; }, [&] { return drums && score (D::Punchy) < -0.2f; }), false },
             { C::Saturation, "add harmonics for density and audibility on small speakers",
-              [&] { return score (D::Thin) > 0.3f || score (D::Bright) < -0.3f || role == InstrumentRole::Bass; }, false },
+              learnedOr ([] (auto& l) { return l.saturation.used; },
+                         [&] { return score (D::Thin) > 0.3f || score (D::Bright) < -0.3f || role == InstrumentRole::Bass; }), false },
             { C::EQ, "additive/tonal EQ after colouration", [&] { return score (D::Bright) < -0.3f || score (D::Harsh) < -0.3f; }, false },
             { C::Modulation, "movement and width for static sources",
               [&] { return (role == InstrumentRole::Synth || role == InstrumentRole::Pad) && score (D::Wide) < -0.4f; }, false },
             { C::Delay, "depth", [&] { return vocal; }, false },
-            { C::Reverb, "space, always last so it is not compressed", [&] { return vocal || role == InstrumentRole::Snare; }, false },
+            { C::Reverb, "space, always last so it is not compressed",
+              learnedOr ([] (auto& l) { return l.reverb.used; }, [&] { return vocal || role == InstrumentRole::Snare; }), false },
         };
     }
     else if (kind == ChannelKind::Bus)

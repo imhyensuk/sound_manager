@@ -1,5 +1,7 @@
 #include "PluginEditor.h"
 
+#include <smix/style/GenreProfile.h>
+
 #include "AnalysisView.h"
 #include "AssistantWorker.h"
 #include "PluginProcessor.h"
@@ -1072,6 +1074,14 @@ public:
         juce::String text = processor.getEngine().statusText();
         const auto genre = processor.getEngine().currentGenre();
         text << ko ("\n장르 프로필: ") << (genre.isEmpty() ? ko ("없음 (기본 규칙)") : genre);
+        if (const auto g = smix::style::activeGenre())
+        {
+            for (auto& [role, proc] : g->processing)
+                text << "\n  " << juce::String::fromUTF8 (smix::koreanName (role).c_str()) << ": "
+                     << juce::String::fromUTF8 (proc.describe().c_str());
+            if (g->hasMasterProcessing)
+                text << ko ("\n  마스터: ") << juce::String::fromUTF8 (g->masterProcessing.describe().c_str());
+        }
         text << ko ("\n분석 도우미: ")
              << (Engine::ProfilerJob::helperExecutable().existsAsFile() ? Engine::ProfilerJob::helperExecutable().getFullPathName()
                                                                          : ko ("찾을 수 없음"));
