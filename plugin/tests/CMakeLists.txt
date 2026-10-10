@@ -35,4 +35,7 @@ target_compile_definitions(SmxIntegrationTest PRIVATE
     SMX_PROFILER_PATH="$<TARGET_FILE:SoundManagerProfiler>")
 target_include_directories(SmxIntegrationTest PRIVATE $<TARGET_PROPERTY:SoundManager,INCLUDE_DIRECTORIES>)
 target_link_libraries(SmxIntegrationTest PRIVATE SoundManager smix_core smix_llm)
+if(APPLE)
+    target_link_libraries(SmxIntegrationTest PRIVATE "-framework CoreAudioKit" "-framework AudioUnit" "-framework AudioToolbox")
+endif()
 add_test(NAME smix_integration COMMAND SmxIntegrationTest)

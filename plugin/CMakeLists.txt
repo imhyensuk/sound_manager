@@ -83,6 +83,10 @@ target_compile_definitions(SoundManagerProfiler PRIVATE
     JUCE_PLUGINHOST_LADSPA=0 JUCE_PLUGINHOST_LV2=0)
 target_link_libraries(SoundManagerProfiler PRIVATE smix_core juce::juce_audio_processors
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+if(APPLE)
+    # Hosting Audio Units (AUGenericView) outside a plugin bundle needs these explicitly.
+    target_link_libraries(SoundManagerProfiler PRIVATE "-framework CoreAudioKit" "-framework AudioUnit" "-framework AudioToolbox")
+endif()
 
 foreach(format VST3 AU AAX LV2 Standalone)
     if(TARGET SoundManager_${format})
