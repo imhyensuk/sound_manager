@@ -1014,6 +1014,9 @@ public:
         aggressive.setButtonText (ko ("무음 채널의 플러그인도 절전 (소리가 다시 나면 자동 복귀, 처음 0.5초는 원음)"));
         aggressive.setToggleState (lib.getSetting ("hibernateSilent", "0") == "1", juce::dontSendNotification);
         addAndMakeVisible (aggressive);
+        linkToggle.setButtonText (ko ("다른 프로세스의 Sound Manager와 연결 (이 컴퓨터 안에서만, 127.0.0.1)"));
+        linkToggle.setToggleState (lib.getSetting ("linkEnabled", "1") == "1", juce::dontSendNotification);
+        addAndMakeVisible (linkToggle);
 
         save.setButtonText (ko ("저장"));
         save.onClick = [this] {
@@ -1024,6 +1027,8 @@ public:
             l.setSetting ("memoryBudgetMiB", juce::String (budget.getText().getIntValue()));
             l.setSetting ("moduleBudgetMiB", juce::String (moduleBudget.getText().getIntValue()));
             l.setSetting ("hibernateSilent", aggressive.getToggleState() ? "1" : "0");
+            l.setSetting ("linkEnabled", linkToggle.getToggleState() ? "1" : "0");
+            processor.getHub().restartLink();
             processor.getEngine().modules().setMemoryBudget (static_cast<std::uint64_t> (moduleBudget.getText().getIntValue()) << 20);
             processor.addLog ("system", ko ("설정을 저장했어요. 메모리 상한 변경은 DAW를 다시 시작하면 적용돼요."));
         };
@@ -1072,6 +1077,7 @@ public:
         modules.updateContent();
         modules.repaint();
         juce::String text = processor.getEngine().statusText();
+        text << ko ("\n프로세스 간 연결: ") << processor.getHub().linkStatus();
         const auto genre = processor.getEngine().currentGenre();
         text << ko ("\n장르 프로필: ") << (genre.isEmpty() ? ko ("없음 (기본 규칙)") : genre);
         if (const auto g = smix::style::activeGenre())
@@ -1106,6 +1112,7 @@ public:
             genreBox.setBounds (x.removeFromLeft (300));
         }
         aggressive.setBounds (row());
+        linkToggle.setBounds (row());
         save.setBounds (row().removeFromLeft (100));
         r.removeFromTop (6);
         status.setBounds (r.removeFromBottom (110));
@@ -1144,7 +1151,7 @@ private:
     juce::Label llmLabel, earLabel, ffmpegLabel, budgetLabel, moduleBudgetLabel, genreLabel;
     juce::ComboBox genreBox;
     juce::TextEditor llmPath, earPath, ffmpegPath, budget, moduleBudget, status;
-    juce::ToggleButton aggressive;
+    juce::ToggleButton aggressive, linkToggle;
     juce::TextButton save;
     LambdaListModel model;
     juce::ListBox modules;

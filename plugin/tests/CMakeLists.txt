@@ -25,14 +25,22 @@ foreach(kind EQ COMP)
     target_link_libraries(SmxFixture${kind} PRIVATE juce::juce_audio_utils PUBLIC juce::juce_recommended_config_flags)
 endforeach()
 
+# A second process for the cross-process link test.
+juce_add_console_app(SmxLinkPeer PRODUCT_NAME "SmxLinkPeer")
+target_sources(SmxLinkPeer PRIVATE LinkPeer.cpp ../Source/SessionLink.cpp)
+target_compile_definitions(SmxLinkPeer PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(SmxLinkPeer PRIVATE smix_core juce::juce_events
+    PUBLIC juce::juce_recommended_config_flags)
+
 # Links against the plugin's shared-code library, so it must see the same JUCE headers and settings.
 add_executable(SmxIntegrationTest IntegrationTest.cpp)
-add_dependencies(SmxIntegrationTest SmxFixtureEQ_VST3 SmxFixtureCOMP_VST3 SoundManagerProfiler)
+add_dependencies(SmxIntegrationTest SmxFixtureEQ_VST3 SmxFixtureCOMP_VST3 SoundManagerProfiler SmxLinkPeer)
 target_compile_definitions(SmxIntegrationTest PRIVATE
     $<TARGET_PROPERTY:SoundManager,COMPILE_DEFINITIONS>
     SMX_TEST_EQ_PATH="${CMAKE_CURRENT_BINARY_DIR}/SmxFixtureEQ_artefacts/$<CONFIG>/VST3/SMX Test EQ.vst3"
     SMX_TEST_COMP_PATH="${CMAKE_CURRENT_BINARY_DIR}/SmxFixtureCOMP_artefacts/$<CONFIG>/VST3/SMX Test Compressor.vst3"
-    SMX_PROFILER_PATH="$<TARGET_FILE:SoundManagerProfiler>")
+    SMX_PROFILER_PATH="$<TARGET_FILE:SoundManagerProfiler>"
+    SMX_LINK_PEER_PATH="$<TARGET_FILE:SmxLinkPeer>")
 target_include_directories(SmxIntegrationTest PRIVATE $<TARGET_PROPERTY:SoundManager,INCLUDE_DIRECTORIES>)
 target_link_libraries(SmxIntegrationTest PRIVATE SoundManager smix_core smix_llm)
 if(APPLE)

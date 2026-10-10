@@ -13,6 +13,7 @@
 #include <smix/style/GenreProfile.h>
 #include <smix/dsp/Builtin.h>
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <random>
@@ -471,6 +472,48 @@ private:
                            "built-in compressor profiled and annotated");
                     if (prof)
                         std::cout << "    " << prof->summary.substr (0, 160) << std::endl;
+                    next();
+                }
+                break;
+
+            case 18:  // cross-process link: a channel owned by another process joins the session
+            {
+                auto& lib = masterProc->getLibrary();
+                lib.setSetting ("linkSession", "smx-test");
+                lib.setSetting ("linkPort", "47999");
+                lib.setSetting ("linkEnabled", "1");
+                masterProc->getHub().restartLink();
+                check (peer.start (juce::StringArray { SMX_LINK_PEER_PATH, "--key", "smx-test", "--port", "47999", "--seconds", "40" }),
+                       "second process started");
+                next();
+                break;
+            }
+
+            case 19:
+                if (waitUntil ([this] { return masterProc->getHub().getSession().find ("remote-snare") != nullptr; }, 15.0))
+                {
+                    auto& hub = masterProc->getHub();
+                    std::cout << "    link: " << hub.linkStatus() << std::endl;
+                    const auto scope = hub.getSession().scopeOf (masterProc->getInstanceId());
+                    check (std::find (scope.begin(), scope.end(), std::string ("remote-snare")) != scope.end(),
+                           "channel of another process is in the master's scope");
+                    smix::MixAction a;
+                    a.type = smix::ActionType::SetGain;
+                    a.channelId = "remote-snare";
+                    a.value = -3.0;
+                    a.unit = "dB";
+                    const auto out = hub.apply ({ a }, masterProc->getInstanceId(), "test", "test");
+                    check (! out.empty() && out[0].ok, "change for the remote channel accepted");
+                    next();
+                }
+                break;
+
+            case 20:
+                if (waitUntil ([this] { return ! peer.isRunning(); }, 15.0))
+                {
+                    const auto output = peer.readAllProcessOutput();
+                    check (output.contains ("set_gain") && output.contains ("remote-snare"),
+                           "the other process received the change: " + output.trim().substring (0, 120));
                     stage = 99;
                 }
                 break;
@@ -498,6 +541,7 @@ private:
     float vocalGain = 1.0f, vocalGainBefore = 0.0f, eqBefore = 0, attackBefore = 0;
     juce::MemoryBlock savedState;
     juce::File referenceFile;
+    juce::ChildProcess peer;
 };
 } // namespace
 

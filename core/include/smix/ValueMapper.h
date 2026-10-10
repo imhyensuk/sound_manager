@@ -1,6 +1,8 @@
 #pragma once
 
 #include <optional>
+
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -40,6 +42,9 @@ public:
 
     /** Recommended normalised points to probe (dense enough for log-scaled frequency knobs). */
     static std::vector<float> probePoints (int count = 65);
+
+    nlohmann::json toJson() const;
+    static ValueMapper fromJson (const nlohmann::json&);
 
 private:
     struct Sample { float norm; double value; };

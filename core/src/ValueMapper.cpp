@@ -186,4 +186,24 @@ std::vector<float> ValueMapper::probePoints (int count)
     return pts;
 }
 
+nlohmann::json ValueMapper::toJson() const
+{
+    nlohmann::json pts = nlohmann::json::array();
+    for (auto& smp : samples)
+        pts.push_back ({ std::round (smp.norm * 10000.0f) / 10000.0f, smp.value });
+    return { { "unit", unitName }, { "points", pts } };
+}
+
+ValueMapper ValueMapper::fromJson (const nlohmann::json& j)
+{
+    ValueMapper m;
+    m.unitName = j.value ("unit", std::string {});
+    if (j.contains ("points") && j["points"].is_array())
+        for (auto& pt : j["points"])
+            if (pt.is_array() && pt.size() == 2 && pt[0].is_number() && pt[1].is_number())
+                m.samples.push_back ({ pt[0].get<float>(), pt[1].get<double>() });
+    std::sort (m.samples.begin(), m.samples.end(), [] (const Sample& a, const Sample& b) { return a.norm < b.norm; });
+    return m;
+}
+
 } // namespace smix

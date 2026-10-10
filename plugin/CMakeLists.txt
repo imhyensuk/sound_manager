@@ -48,6 +48,7 @@ target_sources(SoundManager PRIVATE
     Source/BuiltinFormat.cpp
     Source/Engine.cpp
     Source/SessionHub.cpp
+    Source/SessionLink.cpp
     Source/AssistantWorker.cpp)
 
 # Fully local: no networking code is compiled in (no curl, no web views).

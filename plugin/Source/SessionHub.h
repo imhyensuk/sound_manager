@@ -7,7 +7,10 @@
 #include <smix/MixHistory.h>
 #include <smix/MixSession.h>
 
+#include <set>
+
 #include "Engine.h"
+#include "SessionLink.h"
 
 class SoundManagerProcessor;
 
@@ -55,11 +58,17 @@ public:
     std::vector<SoundManagerProcessor*> possibleParents (const SoundManagerProcessor&) const;
     bool isAutoMixedByAncestor (const std::string& channelId) const;
 
+    /** Instances in other processes of this computer (SessionLink). */
+    bool isRemote (const std::string& channelId) const { return remoteIds.count (channelId) > 0; }
+    juce::String linkStatus() const { return link != nullptr ? link->describe() : juce::String ("off"); }
+    void restartLink();
+
 private:
     class Controller;
     void timerCallback() override;
     std::string resolveParent (const SoundManagerProcessor&) const;
     void runAutoMix();
+    void handleRemoteCall (const nlohmann::json&);
     void recordSnapshot (const std::string& rootId, const std::string& label, const std::string& source);
     Engine& engine() { return *enginePtr; }
 
@@ -70,4 +79,7 @@ private:
     smix::MixHistory mixHistory;
     std::map<std::string, double> lastAutoSnapshot;
     int tickCount = 0;
+    std::unique_ptr<SessionLink> link;
+    std::vector<smix::ChannelState> remote;  // channels owned by other processes (this refresh)
+    std::set<std::string> remoteIds;
 };

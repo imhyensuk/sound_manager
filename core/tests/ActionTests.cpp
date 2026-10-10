@@ -132,3 +132,30 @@ TEST_CASE ("set_chain keeps settings of plugins that stay in the chain")
     CHECK (chain[0].pluginUid == "comp");
     CHECK (chain[1].params[1].value == doctest::Approx (0.75f));
 }
+
+#include <smix/SessionWire.h>
+
+TEST_CASE ("channel wire format keeps everything the executor needs (cross-process link)")
+{
+    auto c = smix::test::makeChannel ("k1", "Kick In", smix::InstrumentRole::Kick);
+    c.chain.push_back (smix::test::makeEq());
+    c.features.valid = true;
+    c.features.shortTermLufs = -18.5f;
+    c.protectedChannel = true;
+    const auto text = smix::wire::channelToJson (c, true).dump();
+    const auto back = smix::wire::channelFromJson (nlohmann::json::parse (text));
+    CHECK (back.id == "k1");
+    CHECK ((back.role == smix::InstrumentRole::Kick));
+    CHECK (back.protectedChannel);
+    CHECK (std::abs (back.features.shortTermLufs + 18.5f) < 0.05f);
+    REQUIRE (back.chain.size() == 1);
+    const auto* gain = back.chain[0].findByRole (smix::ParamRole::BandGain, 1);
+    REQUIRE (gain != nullptr);
+    auto it = back.chain[0].mappers.find (gain->index);
+    REQUIRE (it != back.chain[0].mappers.end());
+    const auto orig = c.chain[0].mappers.at (gain->index).toNormalised (3.0, "dB");
+    const auto got = it->second.toNormalised (3.0, "dB");
+    REQUIRE (orig.has_value());
+    REQUIRE (got.has_value());
+    CHECK (std::abs (*orig - *got) < 1.0e-3f);
+}

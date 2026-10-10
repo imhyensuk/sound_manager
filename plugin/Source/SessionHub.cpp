@@ -13,21 +13,29 @@ public:
     bool setParameter (const std::string& id, int slot, int paramIndex, float v) override
     {
         auto* p = hub.findInstance (id);
+        if (p == nullptr && hub.isRemote (id))
+            return hub.link->call (id, nlohmann::json { { "fn", "set_param" }, { "slot", slot }, { "param", paramIndex }, { "value", v } });
         return p != nullptr && p->setHostedParameter (slot, paramIndex, v);
     }
     bool setGain (const std::string& id, float db) override
     {
         auto* p = hub.findInstance (id);
+        if (p == nullptr && hub.isRemote (id))
+            return hub.link->call (id, nlohmann::json { { "fn", "set_gain" }, { "db", db } });
         return p != nullptr && p->setAiGainDb (db);
     }
     bool setBypass (const std::string& id, int slot, bool b) override
     {
         auto* p = hub.findInstance (id);
+        if (p == nullptr && hub.isRemote (id))
+            return hub.link->call (id, nlohmann::json { { "fn", "set_bypass" }, { "slot", slot }, { "bypass", b } });
         return p != nullptr && p->setSlotBypass (slot, b);
     }
     bool setChain (const std::string& id, const std::vector<std::string>& uids) override
     {
         auto* p = hub.findInstance (id);
+        if (p == nullptr && hub.isRemote (id))
+            return hub.link->call (id, { { "fn", "set_chain" }, { "plugins", uids } });
         if (p == nullptr)
             return false;
         p->loadChain (uids);
@@ -36,6 +44,8 @@ public:
     bool moveSlot (const std::string& id, int from, int to) override
     {
         auto* p = hub.findInstance (id);
+        if (p == nullptr && hub.isRemote (id))
+            return hub.link->call (id, { { "fn", "move_slot" }, { "from", from }, { "to", to } });
         return p != nullptr && p->moveSlot (from, to);
     }
 
@@ -46,12 +56,44 @@ private:
 //==============================================================================
 SessionHub::SessionHub() : controller (std::make_unique<Controller> (*this)), mixHistory (&enginePtr->memory(), 200)
 {
+    link = std::make_unique<SessionLink> ([this] (const nlohmann::json& c) { handleRemoteCall (c); });
+    restartLink();
     startTimer (500);
 }
 
 SessionHub::~SessionHub()
 {
     stopTimer();
+    link.reset();
+}
+
+void SessionHub::restartLink()
+{
+    auto& lib = engine().library();
+    if (lib.getSetting ("linkEnabled", "1") == "1")
+        link->start (lib.getSetting ("linkSession", "default"), lib.getSetting ("linkPort", "47821").getIntValue());
+    else
+        link->stop();
+}
+
+void SessionHub::handleRemoteCall (const nlohmann::json& c)
+{
+    // A validated change from the process that mixes this channel (its master or bus).
+    auto* p = findInstance (c.value ("channel", std::string {}));
+    if (p == nullptr)
+        return;
+    const auto fn = c.value ("fn", std::string {});
+    if (fn == "set_param")
+        p->setHostedParameter (c.value ("slot", -1), c.value ("param", -1), c.value ("value", 0.0f));
+    else if (fn == "set_gain")
+        p->setAiGainDb (c.value ("db", 0.0f));
+    else if (fn == "set_bypass")
+        p->setSlotBypass (c.value ("slot", -1), c.value ("bypass", false));
+    else if (fn == "set_chain")
+        p->loadChain (c.value ("plugins", std::vector<std::string> {}));
+    else if (fn == "move_slot")
+        p->moveSlot (c.value ("from", -1), c.value ("to", -1));
+    sendChangeMessage();
 }
 
 void SessionHub::add (SoundManagerProcessor* p)
@@ -102,7 +144,7 @@ std::string SessionHub::resolveParent (const SoundManagerProcessor& p) const
     if (setting == "master")
         return {};
     if (setting.isNotEmpty() && setting != "auto")
-        return findInstance (setting.toStdString()) != nullptr ? setting.toStdString() : std::string {};
+        return findInstance (setting.toStdString()) != nullptr || isRemote (setting.toStdString()) ? setting.toStdString() : std::string {};
 
     const auto role = p.getEffectiveRole();
     std::vector<SoundManagerProcessor*> candidates;
@@ -116,19 +158,52 @@ std::string SessionHub::resolveParent (const SoundManagerProcessor& p) const
         if (drumMatch || vocalMatch)
             candidates.push_back (bus);
     }
-    return candidates.size() == 1 ? candidates.front()->getInstanceId() : std::string {};
+    // Buses in other processes count too.
+    std::vector<std::string> remoteCandidates;
+    for (auto& bus : remote)
+    {
+        if (bus.kind != smix::ChannelKind::Bus)
+            continue;
+        const auto busName = juce::String (bus.name).toLowerCase();
+        const bool drumMatch = smix::isDrumRole (role) && role != smix::InstrumentRole::DrumBus && bus.role == smix::InstrumentRole::DrumBus;
+        const bool vocalMatch = smix::isVocalRole (role) && (busName.contains ("vox") || busName.contains ("vocal") || busName.contains (ko ("보컬")));
+        if (drumMatch || vocalMatch)
+            remoteCandidates.push_back (bus.id);
+    }
+    if (candidates.size() + remoteCandidates.size() != 1)
+        return {};
+    return candidates.size() == 1 ? candidates.front()->getInstanceId() : remoteCandidates.front();
 }
 
 void SessionHub::refresh()
 {
+    // Channels of other processes first (local buses may be their parents and vice versa).
+    remote.clear();
+    remoteIds.clear();
+    if (link != nullptr && link->isRunning())
+        for (auto& c : link->remoteChannels())
+            if (findInstance (c.id) == nullptr)
+            {
+                remoteIds.insert (c.id);
+                remote.push_back (std::move (c));
+            }
+
     smix::MixSession fresh;
+    std::vector<smix::ChannelState> local;
+    std::map<std::string, bool> autoMix;
     for (auto* p : instances)
     {
         auto c = p->buildChannelState (true);
         c.parentId = resolveParent (*p);
+        autoMix[c.id] = p->isAutoMixEnabled();
+        local.push_back (c);
         fresh.upsert (std::move (c));
     }
+    for (auto& c : remote)
+        fresh.upsert (c);
     session = std::move (fresh);
+    if (link != nullptr && link->isRunning())
+        link->publish (local, autoMix);
 }
 
 void SessionHub::recordSnapshot (const std::string& rootId, const std::string& label, const std::string& source)
@@ -276,6 +351,8 @@ bool SessionHub::isAutoMixedByAncestor (const std::string& channelId) const
         if (parent == nullptr)
             return false;
         if (auto* p = findInstance (parent->id); p != nullptr && p->isAutoMixEnabled())
+            return true;
+        if (isRemote (parent->id) && link->remoteAutoMix (parent->id))
             return true;
         c = parent;
     }

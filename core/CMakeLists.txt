@@ -10,6 +10,7 @@ add_library(smix_core STATIC
     src/GainBalancer.cpp
     src/MixAction.cpp
     src/MixSession.cpp
+    src/SessionWire.cpp
     src/RecipeEngine.cpp
     src/LocalIntentInterpreter.cpp
     src/AutoMixer.cpp
