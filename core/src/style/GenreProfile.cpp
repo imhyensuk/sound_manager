@@ -107,8 +107,13 @@ nlohmann::json GenreProfile::toJson() const
         curvesJson[toString (r)] = arr;
     }
     for (auto& [r, k] : samples) n[toString (r)] = k;
-    return { { "format", "smix-genre-1" }, { "name", name }, { "songs", songs }, { "balance_lu", balance },
-             { "curves_db", curvesJson }, { "tracks_per_role", n }, { "master", master.toJson() } };
+    nlohmann::json proc = nlohmann::json::object();
+    for (auto& [r, p] : processing) proc[toString (r)] = p.toJson();
+    nlohmann::json j { { "format", "smix-genre-2" }, { "name", name }, { "songs", songs }, { "balance_lu", balance },
+                       { "curves_db", curvesJson }, { "tracks_per_role", n }, { "master", master.toJson() }, { "processing", proc } };
+    if (hasMasterProcessing)
+        j["master_processing"] = masterProcessing.toJson();
+    return j;
 }
 
 GenreProfile GenreProfile::fromJson (const nlohmann::json& j)
@@ -129,6 +134,14 @@ GenreProfile GenreProfile::fromJson (const nlohmann::json& j)
         if (auto r = roleFromString (k)) g.samples[*r] = v.get<int>();
     if (j.contains ("master"))
         g.master = StyleProfile::fromJson (j["master"]);
+    const auto proc = j.value ("processing", nlohmann::json::object());
+    for (auto& [k, v] : proc.items())
+        if (auto r = roleFromString (k)) g.processing[*r] = ProcessingSettings::fromJson (v);
+    if (j.contains ("master_processing"))
+    {
+        g.hasMasterProcessing = true;
+        g.masterProcessing = ProcessingSettings::fromJson (j["master_processing"]);
+    }
     return g;
 }
 
@@ -244,6 +257,7 @@ LearnedSong learnSong (const std::string& name, const std::vector<LearnTrack>& t
         double rawSum = 0;
         for (auto v : raw) rawSum += v;
         const double overall = rawSum > 0 ? sum / rawSum : 0.0;
+        lt.mixGainDb = static_cast<float> (10.0 * std::log10 (std::max (overall, 1.0e-12)));
         for (size_t b = 0; b < SpectrumBands::kNumBands; ++b)
         {
             lt.curveDb[b] = static_cast<float> (10.0 * std::log10 (std::max (inMix[b] / std::max (sum, 1.0e-20), 1.0e-6)));
@@ -273,18 +287,22 @@ LearnedSong learnSong (const std::string& name, const std::vector<LearnTrack>& t
     return song;
 }
 
-GenreProfile combineSongs (const std::string& genre, const std::vector<LearnedSong>& songs, const std::vector<StyleProfile>& mixes, int minTracks)
+GenreProfile combineSongs (const std::string& genre, const std::vector<LearnedSong>& songs, const std::vector<StyleProfile>& mixes, int minTracks,
+                           const std::vector<ProcessingSettings>& masterChains)
 {
     GenreProfile g;
     g.name = genre;
     g.songs = static_cast<int> (songs.size());
     std::map<InstrumentRole, std::vector<float>> levels;
     std::map<InstrumentRole, std::array<std::vector<float>, SpectrumBands::kNumBands>> bands;
+    std::map<InstrumentRole, std::vector<ProcessingSettings>> chains;
     for (auto& s : songs)
         for (auto& t : s.tracks)
         {
             if (! t.present || t.role == InstrumentRole::Unknown)
                 continue;
+            if (t.hasProcessing)
+                chains[t.role].push_back (t.processing);
             levels[t.role].push_back (t.levelLu);
             for (size_t b = 0; b < SpectrumBands::kNumBands; ++b)
                 bands[t.role][b].push_back (t.curveDb[b]);
@@ -297,6 +315,15 @@ GenreProfile combineSongs (const std::string& genre, const std::vector<LearnedSo
         g.balanceLu[role] = role == InstrumentRole::LeadVocal ? 0.0f : median (v);
         for (size_t b = 0; b < SpectrumBands::kNumBands; ++b)
             g.curves[role][b] = median (bands[role][b]);
+    }
+
+    for (auto& [role, list] : chains)
+        if (! list.empty())  // even one engineered example beats a rule of thumb
+            g.processing[role] = combineProcessing (list);
+    if (! masterChains.empty())
+    {
+        g.hasMasterProcessing = true;
+        g.masterProcessing = combineProcessing (masterChains);
     }
 
     // Master: mean of the finished mixes (tone in dB, loudness, dynamics, width).

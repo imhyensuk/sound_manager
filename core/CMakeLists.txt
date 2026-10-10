@@ -21,6 +21,7 @@ add_library(smix_core STATIC
     src/modules/ModuleManager.cpp
     src/style/StyleProfile.cpp
     src/style/GenreProfile.cpp
+    src/style/ProcessingLearner.cpp
     src/knowledge/PluginProfile.cpp
     src/knowledge/KnowledgeBase.cpp
     src/dialogue/Dialogue.cpp
@@ -78,7 +79,8 @@ if(SMIX_BUILD_TESTS)
         tests/EarTests.cpp
         tests/LlmTests.cpp
         tests/GenreTests.cpp
-        tests/DspTests.cpp)
+        tests/DspTests.cpp
+        tests/ProcessingTests.cpp)
     target_link_libraries(smix_core_tests PRIVATE smix_core smix_llm doctest::doctest)
     target_compile_definitions(smix_core_tests PRIVATE SMIX_TEST_TINY_LLM="${CMAKE_BINARY_DIR}/tiny-llm.gguf"
                                                        SMIX_SOURCE_DIR="${PROJECT_SOURCE_DIR}")

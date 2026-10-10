@@ -10,6 +10,7 @@
 
 #include "smix/AudioFeatures.h"
 #include "smix/Types.h"
+#include "smix/style/ProcessingLearner.h"
 #include "smix/style/StyleProfile.h"
 
 namespace smix::style
@@ -32,6 +33,17 @@ struct GenreProfile
     std::map<InstrumentRole, std::array<float, SpectrumBands::kNumBands>> curves;
     std::map<InstrumentRole, int> samples;  // how many tracks each role was learned from
     StyleProfile master;
+    /** How each instrument was processed (gain, gate, EQ, de-esser, compressor, saturation, envelope, reverb). */
+    std::map<InstrumentRole, ProcessingSettings> processing;
+    bool hasMasterProcessing = false;
+    ProcessingSettings masterProcessing;  // premaster -> master, when both were given
+
+    const ProcessingSettings* processingFor (InstrumentRole r) const
+    {
+        if (r == InstrumentRole::Master && hasMasterProcessing) return &masterProcessing;
+        const auto it = processing.find (r);
+        return it != processing.end() ? &it->second : nullptr;
+    }
 
     nlohmann::json toJson() const;
     static GenreProfile fromJson (const nlohmann::json&);
@@ -60,7 +72,10 @@ struct LearnedTrack
     std::array<float, SpectrumBands::kNumBands> bandGainDb {};  // how the engineer changed each band (relative)
     std::array<float, SpectrumBands::kNumBands> curveDb {};     // tonal balance in the mix
     float levelLu = 0.0f;   // level in the mix relative to the anchor (lead vocal)
+    float mixGainDb = 0.0f; // broadband energy gain from the file to the mix (fader, bus, master)
     bool present = false;   // false: (almost) not used in the mix
+    bool hasProcessing = false;  // a processed stem was given: its insert chain was learned
+    ProcessingSettings processing;
 };
 
 struct LearnedSong
@@ -87,6 +102,6 @@ bool isAuxiliaryTrackName (const std::string& fileName);
 
 /** Median over songs/tracks -> genre profile. Roles seen in fewer than `minTracks` tracks are left out. */
 GenreProfile combineSongs (const std::string& genre, const std::vector<LearnedSong>&, const std::vector<StyleProfile>& mixes,
-                           int minTracks = 2);
+                           int minTracks = 2, const std::vector<ProcessingSettings>& masterChains = {});
 
 } // namespace smix::style
