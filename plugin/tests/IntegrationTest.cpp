@@ -137,6 +137,12 @@ private:
 
     void next() { ++stage; stageStart = 0.0; }
 
+    /** Wall-clock time spent in this stage (timer rates differ between platforms). */
+    bool elapsed (double seconds) const
+    {
+        return stageStart > 0.0 && juce::Time::getMillisecondCounterHiRes() - stageStart > seconds * 1000.0;
+    }
+
     void timerCallback() override
     {
         switch (stage)
@@ -182,7 +188,7 @@ private:
                 break;
 
             case 2:
-                if (waitUntil ([this] { return ++ticks > 10; }, 5.0, false))
+                if (waitUntil ([this] { return elapsed (0.2); }, 10.0, false))
                 {
                     ticks = 0;
                     auto& e = kickProc->getEngine();
@@ -270,7 +276,7 @@ private:
                 break;
 
             case 7:
-                if (waitUntil ([this] { return ++ticks > 40; }, 10.0))
+                if (waitUntil ([this] { return elapsed (0.8); }, 20.0))
                 {
                     // Go to the very first snapshot of the kick: the state before any AI change.
                     std::int64_t first = 0;
@@ -287,7 +293,7 @@ private:
                 break;
 
             case 8:
-                if (waitUntil ([this] { return ++ticks > 40; }, 10.0))
+                if (waitUntil ([this] { return elapsed (0.8); }, 20.0))
                 {
                     check (std::abs (hostedValue (*kickProc, 0, "Band 2 Gain") - eqBefore) < 0.01f, "history restore brought the EQ back");
                     // Protection: the user locks the kick EQ, then asks for something that needs it.
@@ -387,7 +393,7 @@ private:
                 break;
 
             case 14:
-                if (waitUntil ([this] { return ++ticks > 300; }, 15.0))
+                if (waitUntil ([this] { return elapsed (6.0); }, 40.0))
                 {
                     const float after = vocalProc->getParameters().getRawParameterValue ("aiGain")->load();
                     check (after < vocalGainBefore - 0.5f, "auto mix pulled the loud vocal down: " + juce::String (after, 1) + " dB");
@@ -440,7 +446,7 @@ private:
             case 16:
                 // ...and wait until the auto mixer has given the new plugins their starting settings.
                 if (waitUntil ([this] { return tomProc->getChain().size() == plannedSize && ! kickProc->getEngine().profiler().isRunning()
-                                               && ++ticks > 150; }, 60.0, false))
+                                               && elapsed (3.0); }, 60.0, false))
                 {
                     auto* gate = tomProc->getChain().slot (0);
                     check (gate != nullptr && gate->instance != nullptr && gate->instance->getName() == "SM Gate", "built-in gate hosted");
@@ -459,7 +465,7 @@ private:
                 break;
 
             case 17:
-                if (waitUntil ([this] { return ++ticks > 40; }, 10.0, false))
+                if (waitUntil ([this] { return elapsed (0.8); }, 20.0, false))
                 {
                     ticks = 0;
                     juce::String text;
